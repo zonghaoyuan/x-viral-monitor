@@ -9,8 +9,8 @@ import vm from 'node:vm';
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..');
 const manifest = JSON.parse(readFileSync(resolve(repo, 'manifest.json'), 'utf8'));
-const gate = readFileSync(resolve(repo, 'src/premium/license/gate.js'), 'utf8');
-const isolated = readFileSync(resolve(repo, 'src/premium/license/isolated.js'), 'utf8');
+const gate = readFileSync(resolve(repo, 'src/premium/unlocked.js'), 'utf8');
+const isolated = readFileSync(resolve(repo, 'src/premium/filter-bridge.js'), 'utf8');
 const filter = readFileSync(resolve(repo, 'src/premium/content-filter/filter.js'), 'utf8');
 const popupFilter = readFileSync(resolve(repo, 'src/premium/content-filter/popup-content-filter.js'), 'utf8');
 const rulesJson = JSON.parse(readFileSync(resolve(repo, 'src/premium/content-filter/rules.json'), 'utf8'));
@@ -169,7 +169,7 @@ describe('#123 XVM content filter v1', () => {
   it('manifest loads content-filter rules/filter after gate and before rate/content', () => {
     const main = manifest.content_scripts.find((cs) => cs.world === 'MAIN');
     const order = main.js;
-    const gateIdx = order.indexOf('src/premium/license/gate.js');
+    const gateIdx = order.indexOf('src/premium/unlocked.js');
     const rulesIdx = order.indexOf('src/premium/content-filter/rules.js');
     const filterIdx = order.indexOf('src/premium/content-filter/filter.js');
     const rateIdx = order.indexOf('src/premium/rate-filter/filter.js');
@@ -180,8 +180,8 @@ describe('#123 XVM content filter v1', () => {
     expect(filterIdx).toBeLessThan(contentIdx);
   });
 
-  it('premium gate and isolated bridge expose content-filter feature/settings', () => {
-    expect(gate).toMatch(/['"]content-filter['"]\s*:\s*['"]free['"]/);
+  it('unlocked stub and filter bridge expose content-filter feature/settings', () => {
+    expect(gate).toMatch(/isFeatureEnabled:\s*\(\)\s*=>\s*true/);
     expect(isolated).toMatch(/CONTENT_FILTER_KEY\s*=\s*['"]xvm_content_filter_v1['"]/);
     expect(isolated).toMatch(/XVM_CONTENT_FILTER_SETTINGS_UPDATE/);
     expect(isolated).toMatch(/pushContentFilterSettings/);

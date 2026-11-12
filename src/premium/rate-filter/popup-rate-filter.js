@@ -72,12 +72,9 @@
 
   // Resolve tier independently (popup-pro.js already uses tier-logic.js for
   // banner; we can read again — cheap, and avoids cross-script coupling).
+  // Local build: licensing removed, every feature is unlocked.
   async function resolveTier() {
-    const TL = globalThis.__xvmTierLogic;
-    if (!TL) return { tier: 'free', daysLeft: 0, source: 'tier-logic-missing' };
-    const lic = await storageGet('xvm_license_v1', null);
-    const trial = await storageGet('xvm_trial_v1', null);
-    return TL.resolveTierFrom(lic, trial, Date.now());
+    return { tier: 'pro', daysLeft: 0, source: 'local-unlocked' };
   }
 
   function buildSection() {

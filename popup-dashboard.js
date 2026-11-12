@@ -14,7 +14,7 @@
 //     click handler (display only; M2 work item).
 
 (() => {
-  const TABS = ['pro', 'filter', 'leaderboard', 'ai', 'about'];
+  const TABS = ['filter', 'leaderboard', 'about'];
   const ACTIVE_TAB_KEY = 'xvm_popup_active_tab';
 
   // Critical bug fix (Codex polish item 3): the previous t(key) signature

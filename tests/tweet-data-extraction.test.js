@@ -7,8 +7,9 @@ const start = source.indexOf('function extractTweetData(');
 const end = source.indexOf('\n}\n\n// Draft.js', start) + 2;
 const extractTweetData = Function(
   'buildArticleMarkdown',
+  'rememberUserFollowers',
   `return (${source.slice(start, end)})`,
-)(() => '');
+)(() => '', () => null);
 
 const scanStart = source.indexOf('function scanForTweets(');
 const scanEnd = source.indexOf('\nfunction extractTweetData(', scanStart);
@@ -26,9 +27,6 @@ const renderBadgesStart = source.indexOf('function renderBadges(');
 const renderBadgesEnd = source.indexOf('\nfunction renderBookmarkTimelineBadges(', renderBadgesStart);
 const renderBadgesSource = source.slice(renderBadgesStart, renderBadgesEnd);
 
-const getTweetTextStart = source.indexOf('function getTweetTextFromArticle(');
-const getTweetTextEnd = source.indexOf('\nfunction getStatusIdFromLocation(', getTweetTextStart);
-const getTweetTextFromArticleSource = source.slice(getTweetTextStart, getTweetTextEnd);
 
 it('uses the outer post metrics when a repost contains retweeted_status_result', () => {
   // Given
@@ -61,28 +59,6 @@ it('uses the outer post metrics when a repost contains retweeted_status_result',
   });
 });
 
-it('uses cached X Article markdown instead of its permalink as AI prompt text', () => {
-  const tweetDataStore = new Map([['2080877134319624492', {
-    articleMd: '# A real article title\n\nThe article body contains the argument AI should discuss.',
-  }]]);
-  const article = {};
-  const getTweetTextFromArticle = Function(
-    'tweetDataStore',
-    'getStatusIdFromLocation',
-    'getTweetIdFromArticle',
-    'getTweetPermalinkFromArticle',
-    `${getTweetTextFromArticleSource}; return getTweetTextFromArticle;`,
-  )(
-    tweetDataStore,
-    () => '2080877134319624492',
-    () => '2080877134319624492',
-    () => 'https://x.com/AI_Jasonyu/status/2080877134319624492',
-  );
-
-  expect(getTweetTextFromArticle(article)).toContain('The article body contains the argument AI should discuss.');
-  expect(getTweetTextFromArticle(article)).not.toBe('https://x.com/AI_Jasonyu/status/2080877134319624492');
-});
-
 it('collects an embedded tweet from a TweetResultByRestId response', () => {
   // Given
   const { scanForTweets, tweetDataStore } = Function(
@@ -90,6 +66,7 @@ it('collects an embedded tweet from a TweetResultByRestId response', () => {
     `
       const tweetDataStore = new Map();
       function renderBadges() {}
+      const rememberUserFollowers = () => null;
       ${scanForTweetsSource}
       ${source.slice(start, end)}
       return { scanForTweets, tweetDataStore };
@@ -170,6 +147,7 @@ it('mounts a badge in an embedded tweet header that has no caret button', () => 
       const renderBookmarkTimelineBadges = () => {};
       const renderBookmarkCounts = () => {};
       const renderLeaderboard = () => {};
+      const renderFollowerCount = () => {};
       ${renderBadgesSource}
       return renderBadges;
     `,
@@ -329,7 +307,7 @@ it('replaces a stale velocity badge when a reused article now resolves to anothe
     removeAttribute(name) { this.attributes.delete(name); },
     querySelector: (selector) => selector === '[data-testid="caret"]' ? null : null,
     querySelectorAll(selector) {
-      if (selector === ':scope .xvm-badge') return [staleBadge];
+      if (selector === ':scope .xvm-badge' || selector === ':scope .xvm-badge, :scope .xvm-followers') return [staleBadge];
       if (selector === '[data-testid="User-Name"]') return [userName];
       return [];
     },
@@ -375,6 +353,7 @@ it('replaces a stale velocity badge when a reused article now resolves to anothe
       const renderBookmarkTimelineBadges = () => {};
       const renderBookmarkCounts = () => {};
       const renderLeaderboard = () => {};
+      const renderFollowerCount = () => {};
       ${renderBadgesSource}
       return renderBadges;
     `,
@@ -390,4 +369,17 @@ it('replaces a stale velocity badge when a reused article now resolves to anothe
   expect(staleBadge.removeCalled).toBe(true);
   expect(article.getAttribute('data-xvm-scored-id')).toBe('2081751375822856669');
   expect(insertedBadges).toHaveLength(1);
+});
+
+it('reads author follower counts from every known user shape', () => {
+  const readStart = source.indexOf('function readUserFollowers(');
+  const readEnd = source.indexOf('\nfunction rememberUserFollowers(', readStart);
+  const readUserFollowers = Function(`${source.slice(readStart, readEnd)}; return readUserFollowers;`)();
+
+  expect(readUserFollowers({ legacy: { followers_count: 268295 } })).toBe(268295);
+  expect(readUserFollowers({ legacy: {}, relationship_counts: { followers: 42 } })).toBe(42);
+  expect(readUserFollowers({ core: { followers_count: '1200' } })).toBe(1200);
+  expect(readUserFollowers({ legacy: { followers_count: 0 } })).toBe(0);
+  expect(readUserFollowers({ legacy: {} })).toBe(null);
+  expect(readUserFollowers(null)).toBe(null);
 });

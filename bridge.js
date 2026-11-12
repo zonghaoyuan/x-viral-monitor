@@ -990,27 +990,6 @@ function safeChromeCall(fn) {
 
 safeChromeCall(() => {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === 'XVM_GROK_CHECK') {
-      const requestId = `grok-check-${crypto.randomUUID()}`;
-      const finish = (result) => {
-        clearTimeout(timer);
-        window.removeEventListener('message', onResult);
-        sendResponse(result);
-      };
-      const onResult = (event) => {
-        if (event.source !== window || event.data?.type !== 'XVM_GROK_CHECK_RESULT'
-          || event.data.requestId !== requestId) return;
-        const result = event.data.result;
-        // Never forward arbitrary page payloads or transaction IDs to the popup.
-        finish(result?.ok === true
-          ? { ok: true, message: '已检测到 X 会话标记并生成签名（未验证生成接口）' }
-          : { ok: false, error: String(result?.error || 'Grok 就绪检查失败') });
-      };
-      const timer = setTimeout(() => finish({ ok: false, error: 'Grok 就绪检查超时，请刷新 X 后重试。' }), 20000);
-      window.addEventListener('message', onResult);
-      window.postMessage({ type: 'XVM_GROK_CHECK_REQUEST', requestId }, '*');
-      return true;
-    }
     if (message?.type === 'XVM_RELEASE_NOTES_SHOW_MANUAL') {
       const version = typeof message.version === 'string' && message.version
         ? message.version
@@ -1018,12 +997,6 @@ safeChromeCall(() => {
       if (version) window.postMessage({ type: 'XVM_RELEASE_NOTES_SHOW', version }, '*');
       return false;
     }
-    if (message?.type !== 'XVM_AI_GENERATE_PROGRESS') return false;
-    window.postMessage({
-      type: 'XVM_AI_GENERATE_PROGRESS',
-      requestId: message.requestId,
-      comments: Array.isArray(message.comments) ? message.comments : [],
-    }, '*');
     return false;
   });
 });
@@ -1357,38 +1330,6 @@ window.addEventListener('message', (event) => {
     return;
   }
 
-  if (type === 'XVM_SC_TEMPLATES_REQUEST') {
-    const ops = ['Retweeters', 'SearchTimeline', '_global'];
-    const defaults = {};
-    for (const op of ops) defaults[`xvmStarChartTemplate_${op}`] = null;
-    safeChromeCall(() => {
-      chrome.storage.local.get(defaults, (items) => {
-        const templates = {};
-        for (const op of ops) {
-          const v = items[`xvmStarChartTemplate_${op}`];
-          if (v) templates[op] = v;
-        }
-        window.postMessage({
-          type: 'XVM_SC_TEMPLATES_LOAD',
-          templates,
-        }, '*');
-      });
-    });
-    return;
-  }
-
-  if (type === 'XVM_SC_TEMPLATE_CAPTURE' && event.data.op && event.data.template) {
-    const storageKey = `xvmStarChartTemplate_${event.data.op}`;
-    safeChromeCall(() => {
-      chrome.storage.local.get({ [storageKey]: {} }, (items) => {
-        const cur = items[storageKey] || {};
-        const next = { ...cur, ...event.data.template, capturedAt: Date.now() };
-        chrome.storage.local.set({ [storageKey]: next });
-      });
-    });
-    return;
-  }
-
   if (type === 'XVM_GROK_SETTINGS_REQUEST') {
     safeChromeCall(() => {
       chrome.storage.sync.get({
@@ -1427,44 +1368,6 @@ window.addEventListener('message', (event) => {
     return;
   }
 
-  // Persist a tx-id observed on a real X-UI add_response.json POST.
-  // Stored as { txId, capturedAt } in chrome.storage.local. Used as fallback
-  // when self-generated tx-ids fail signature validation (e.g. after X
-  // redeploys their bundle and our algorithm port is briefly out of date).
-  if (type === 'XVM_GROK_CAPTURE_SET' && typeof event.data.txId === 'string' && event.data.txId.length > 16) {
-    safeChromeCall(() => {
-      chrome.storage.local.set({
-        xvmGrokCapturedTxId: { txId: event.data.txId, capturedAt: Date.now() },
-      });
-    });
-    return;
-  }
-
-  if (type === 'XVM_GROK_CAPTURE_CLEAR') {
-    safeChromeCall(() => chrome.storage.local.remove('xvmGrokCapturedTxId'));
-    return;
-  }
-
-  if (type === 'XVM_AI_GENERATE' && typeof event.data.requestId === 'string') {
-    const requestId = event.data.requestId;
-    safeChromeCall(() => {
-      chrome.runtime.sendMessage({
-        type: 'XVM_AI_GENERATE',
-        requestId,
-        payload: event.data.payload || {},
-      }, (res) => {
-        const lastError = chrome.runtime.lastError;
-        window.postMessage({
-          type: 'XVM_AI_GENERATE_RESULT',
-          requestId,
-          ok: !lastError && !!res?.ok,
-          comments: Array.isArray(res?.comments) ? res.comments : [],
-          error: lastError?.message || res?.error || '',
-        }, '*');
-      });
-    });
-    return;
-  }
 });
 
 // One-time cleanup of legacy captured template (no longer used after self-gen
