@@ -10,14 +10,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..');
 const html      = readFileSync(resolve(repo, 'popup.html'),         'utf8');
 const dashJs    = readFileSync(resolve(repo, 'popup-dashboard.js'), 'utf8');
-const proJs     = readFileSync(resolve(repo, 'src/premium/license/popup-pro.js'), 'utf8');
 const rfJs      = readFileSync(resolve(repo, 'src/premium/rate-filter/popup-rate-filter.js'), 'utf8');
 const bridgeJs  = readFileSync(resolve(repo, 'bridge.js'),          'utf8');
 const popupJs   = readFileSync(resolve(repo, 'popup.js'),           'utf8');
 const contentJs = readFileSync(resolve(repo, 'content.js'),         'utf8');
 const stylesCss = readFileSync(resolve(repo, 'styles.css'),         'utf8');
 const userScript = readFileSync(resolve(repo, 'userscript/x-viral-monitor.user.js'), 'utf8');
-const backgroundJs = readFileSync(resolve(repo, 'background.js'), 'utf8');
 const manifest = JSON.parse(readFileSync(resolve(repo, 'manifest.json'), 'utf8'));
 const pkg = JSON.parse(readFileSync(resolve(repo, 'package.json'), 'utf8'));
 const packageLock = JSON.parse(readFileSync(resolve(repo, 'package-lock.json'), 'utf8'));
@@ -37,14 +35,14 @@ function contrastRatio(foreground, background) {
 }
 
 describe('#45 popup tabs structure (mock A)', () => {
-  it('body declares data-tab default "filter" + data-tier "free" + data-theme "light"', () => {
+  it('body declares data-tab default "filter" + data-tier "pro" (local build) + data-theme "light"', () => {
     expect(/<body[^>]*data-tab="filter"/.test(html)).toBe(true);
-    expect(/<body[^>]*data-tier="free"/.test(html)).toBe(true);
+    expect(/<body[^>]*data-tier="pro"/.test(html)).toBe(true);
     expect(/<body[^>]*data-theme="light"/.test(html)).toBe(true);
   });
 
-  it('declares 5 tab buttons (role=tab) with data-tab values', () => {
-    for (const name of ['pro', 'filter', 'leaderboard', 'ai', 'about']) {
+  it('declares 3 tab buttons (role=tab) with data-tab values (Pro and AI removed locally)', () => {
+    for (const name of ['filter', 'leaderboard', 'about']) {
       expect(new RegExp(`<button[^>]*role="tab"[^>]*data-tab="${name}"`).test(html),
         `popup.html must contain <button role="tab" data-tab="${name}">`
       ).toBe(true);
@@ -58,8 +56,8 @@ describe('#45 popup tabs structure (mock A)', () => {
     ).toBe(true);
   });
 
-  it('declares 5 tab panels (data-tab-panel) matching the 5 tabs', () => {
-    for (const name of ['pro', 'filter', 'leaderboard', 'ai', 'about']) {
+  it('declares tab panels (data-tab-panel) matching the tabs', () => {
+    for (const name of ['filter', 'leaderboard', 'about']) {
       expect(new RegExp(`data-tab-panel="${name}"`).test(html),
         `popup.html must contain a panel with data-tab-panel="${name}"`
       ).toBe(true);
@@ -68,19 +66,10 @@ describe('#45 popup tabs structure (mock A)', () => {
 
   it('header includes the SVG app icon, tier chip, language button, and theme toggle button', () => {
     expect(/<img class="app-logo" src="icons\/icon_origin\.svg" alt="X Viral Monitor">/.test(html)).toBe(true);
-    expect(/id="tier-chip"/.test(html)).toBe(true);
     expect(/id="language-toggle"/.test(html)).toBe(true);
     expect(/id="theme-toggle"/.test(html)).toBe(true);
     expect(/<symbol id="icon-sun"/.test(html)).toBe(true);
     expect(/<symbol id="icon-moon"/.test(html)).toBe(true);
-  });
-
-  it('Pro tab includes inline activate form + Coming-soon M2 list', () => {
-    const pro = html.match(/data-tab-panel="pro"[\s\S]*?(?=role="tabpanel"|<\/section>\s*$)/)?.[0] || '';
-    expect(/id="activate-inline"/.test(pro)).toBe(true);
-    expect(/class="coming-list"/.test(pro)).toBe(true);
-    // 3 stubs: color-card, webhook, bark
-    expect((pro.match(/icon-palette|icon-webhook|icon-bell/g) || []).length).toBeGreaterThanOrEqual(3);
   });
 
   it('Filter tab hosts #rate-filter-section', () => {
@@ -116,7 +105,6 @@ describe('#45 popup tabs structure (mock A)', () => {
   it('About tab hosts Other features + theme toggle entry', () => {
     const about = html.match(/data-tab-panel="about"[\s\S]*?(?=<\/div>\s*<div id="xvm-toast")/)?.[0] || '';
     expect(/id="feat-copy-md"/.test(about)).toBe(true);
-    expect(/id="feat-starchart"/.test(about)).toBe(true);
     expect(/id="feat-bookmark-folders"/.test(about)).toBe(true);
     expect(/id="feat-bookmark-count"/.test(about)).toBe(true);
     expect(/id="grok-enter-reply"/.test(about)).toBe(true);
@@ -151,66 +139,6 @@ describe('#45 popup tabs structure (mock A)', () => {
     expect(shortcut).not.toContain('grokLastReplyArticle');
   });
 
-  it('does not inject the AI generate button into normal new-post composers', () => {
-    expect(/function\s+findReplyArticleForAiComposer/.test(contentJs)).toBe(true);
-    expect(/RECENT_REPLY_CONTEXT_TTL_MS/.test(contentJs)).toBe(true);
-    const contextStart = contentJs.indexOf('function findReplyArticleForAiComposer');
-    const contextEnd = contentJs.indexOf('function findReplyEditable', contextStart);
-    const contextFn = contextStart >= 0 && contextEnd > contextStart ? contentJs.slice(contextStart, contextEnd) : '';
-    expect(contextFn).toContain("composerRoot?.closest?.('[role=\"dialog\"]')");
-    expect(contextFn).toContain('getStatusIdFromLocation()');
-    expect(contextFn).toContain('findArticleForCurrentStatus()');
-    const injectorStart = contentJs.indexOf('function injectGrokReplyButtons');
-    const injectorEnd = contentJs.indexOf('// Tracks the conversation', injectorStart);
-    const injector = injectorStart >= 0 && injectorEnd > injectorStart ? contentJs.slice(injectorStart, injectorEnd) : '';
-    expect(injector).toContain('findReplyArticleForAiComposer(composerRoot)');
-    expect(injector).not.toContain('findReplyArticle(composerRoot)');
-    expect(injector).toContain("querySelectorAll?.('.xvm-grok-generate-btn').forEach((btn) => btn.remove())");
-  });
-
-  it('places the AI generate button before the native reply submit button', () => {
-    const hostStart = contentJs.indexOf('function findGrokButtonHost');
-    const hostEnd = contentJs.indexOf('function findReplySubmitButton', hostStart);
-    const hostFn = hostStart >= 0 && hostEnd > hostStart ? contentJs.slice(hostStart, hostEnd) : '';
-    expect(hostFn).toContain('const submitHost = submitBtn.parentElement');
-    expect(hostFn).toContain('return { host: submitHost, submitBtn, insertBefore: submitBtn }');
-    expect(contentJs).toContain('function prepareGrokActionsHost');
-    expect(contentJs).toContain("host.style.setProperty('flex-direction', 'row', 'important')");
-    expect(contentJs).toContain("host.style.setProperty('align-items', 'center', 'important')");
-    expect(contentJs).toContain('prepareGrokActionsHost(host)');
-    expect(stylesCss).toContain('.xvm-grok-actions-host');
-    expect(stylesCss).toContain('flex-direction: row !important');
-    expect(stylesCss).toContain('align-items: center !important');
-    expect(stylesCss).toContain('height: 40px');
-    expect(stylesCss).toContain('border-radius: 9999px');
-  });
-
-  it('uses the legacy Grok candidate panel placement for AI comments', () => {
-    const panelStart = contentJs.indexOf('function showGrokOptions');
-    const panelEnd = contentJs.indexOf('function setGrokButtonLabel', panelStart);
-    const panelFn = panelStart >= 0 && panelEnd > panelStart ? contentJs.slice(panelStart, panelEnd) : '';
-    expect(panelFn).toContain('const panelHGuess = Math.max(panel.offsetHeight || 0, minH)');
-    expect(panelFn).toContain("placement = spaceRight >= spaceLeft && spaceRight >= minW + 12");
-    expect(panelFn).toContain('btnRect.top + btnRect.height / 2 - panelH / 2');
-    expect(panelFn).toContain('panel.classList.add(`xvm-grok-options--${placement}`)');
-    expect(panelFn).not.toContain('dockPanelToViewportBottom');
-    expect(panelFn).not.toContain('panel.style.maxHeight');
-    expect(panelFn).not.toContain('panel.style.height');
-    expect(stylesCss).toContain('.xvm-grok-options-list');
-    expect(stylesCss).toContain('overflow: auto');
-    expect(stylesCss).not.toContain('max-height: 220px');
-  });
-
-  it('uses the legacy Grok template menu placement', () => {
-    const menuStart = contentJs.indexOf('function showGrokTemplateMenu');
-    const menuEnd = contentJs.indexOf('// Renders or updates the candidate panel', menuStart);
-    const menuFn = menuStart >= 0 && menuEnd > menuStart ? contentJs.slice(menuStart, menuEnd) : '';
-    expect(menuFn).toContain('window.innerHeight - menu.offsetHeight - 12');
-    expect(menuFn).not.toContain('menu.style.height');
-    expect(menuFn).not.toContain('menu.style.maxHeight');
-    expect(stylesCss).toContain('.xvm-grok-template-menu-list');
-  });
-
   it('AI tab owns the current Grok reply template controls for future provider settings', () => {
     const ai = html.match(/data-tab-panel="ai"[\s\S]*?(?=<\/section>\s*<!-- ============ Tab: About)/)?.[0] || '';
     expect(/id="ai-provider"/.test(ai)).toBe(true);
@@ -237,12 +165,12 @@ describe('#45 popup tabs structure (mock A)', () => {
 
   it('keeps all legacy IDs popup.js / popup-rate-filter.js / popup-pro.js depend on', () => {
     for (const id of ['settings-form', 'trending', 'viral', 'badge-style', 'reset',
-                      'feat-leaderboard', 'feat-copy-md', 'feat-starchart',
+                      'feat-leaderboard', 'feat-copy-md',
                       'feat-bookmark-folders', 'feat-bookmark-count', 'lb-count', 'lb-col-list',
                       'lb-reset-pos', 'lb-reset-msg',
                       'grok-template-select', 'grok-prompt', 'grok-template-name',
                       'language-select', 'language-toggle',
-                      'rate-filter-section', 'xvm-pro-section']) {
+                      'rate-filter-section']) {
       expect(new RegExp(`id="${id}"`).test(html), `popup.html must keep id="${id}"`).toBe(true);
     }
   });
@@ -258,9 +186,6 @@ describe('#45 popup tabs structure (mock A)', () => {
     const scripts = [...html.matchAll(/<script\s+src="([^"]+)"/g)].map((m) => m[1]);
     expect(scripts).toEqual([
       'src/build-channel.js',
-      'src/premium/license/tier-logic.js',
-      'src/premium/license/entitlement.js',
-      'src/premium/license/popup-pro.js',
       'src/premium/rate-filter/popup-rate-filter.js',
       'src/premium/content-filter/rules.js',
       'src/premium/content-filter/popup-content-filter.js',
@@ -359,7 +284,7 @@ describe('#45 Filter sub-tabs (Short / Long)', () => {
 describe('#45 popup-dashboard.js tab router', () => {
   it('exposes setTab function + TABS whitelist', () => {
     expect(/function\s+setTab\s*\(/.test(dashJs)).toBe(true);
-    expect(/TABS\s*=\s*\[\s*['"]pro['"]\s*,\s*['"]filter['"]\s*,\s*['"]leaderboard['"]\s*,\s*['"]ai['"]\s*,\s*['"]about['"]\s*\]/.test(dashJs)).toBe(true);
+    expect(/TABS\s*=\s*\[\s*['"]filter['"]\s*,\s*['"]leaderboard['"]\s*,\s*['"]about['"]\s*\]/.test(dashJs)).toBe(true);
   });
   it('wires aria-selected updates on tab click', () => {
     expect(/aria-selected/.test(dashJs)).toBe(true);
@@ -389,34 +314,6 @@ describe('#45 popup-dashboard.js tab router', () => {
     expect(/data-tier/.test(dashJs)).toBe(true);
     expect(/data-build-channel/.test(dashJs)).toBe(true);
     expect(/label\s*=\s*['"]DEV['"]/.test(dashJs)).toBe(true);
-  });
-});
-
-describe('#45 popup-pro.js Pro-tab rendering', () => {
-  it('uses .tier-big / .tier-sub / .pro-cta-row / .pro-meta classes (mock A)', () => {
-    expect(/className\s*=\s*['"]tier-big['"]/.test(proJs)).toBe(true);
-    expect(/className\s*=\s*['"]tier-sub['"]/.test(proJs)).toBe(true);
-    expect(/className\s*=\s*['"]pro-cta-row['"]/.test(proJs)).toBe(true);
-    expect(/className\s*=\s*['"]pro-meta['"]/.test(proJs)).toBe(true);
-  });
-  it('writes document.body.dataset.tier so global CSS tier-color rules apply', () => {
-    expect(/document\.body\.dataset\.tier\s*=\s*tier/.test(proJs)).toBe(true);
-  });
-  it('writes build channel and renders community dev without store license controls', () => {
-    expect(/document\.body\.dataset\.buildChannel\s*=\s*globalThis\.__xvmBuildChannel/.test(proJs)).toBe(true);
-    expect(/communityDevBadge/.test(proJs)).toBe(true);
-    expect(/communityDevSub/.test(proJs)).toBe(true);
-    expect(/tier\s*!==\s*['"]pro['"]\s*&&\s*!isCommunityDev/.test(proJs)).toBe(true);
-    expect(/else\s+if\s*\(\s*!isCommunityDev\s*\)/.test(proJs)).toBe(true);
-  });
-  it('exposes window.__xvmProDays for tier-chip days-left display', () => {
-    expect(/window\.__xvmProDays/.test(proJs)).toBe(true);
-    expect(/xvm-pro-days/.test(proJs)).toBe(true);
-  });
-  it('emits xvm-pro-nav { view: activate } from the Activate Existing link', () => {
-    expect(/xvm-pro-nav[\s\S]*detail:\s*\{\s*view:\s*['"]activate['"]\s*\}/.test(proJs)
-      || /detail:\s*\{\s*view:\s*['"]activate['"]\s*\}[\s\S]*xvm-pro-nav/.test(proJs)
-    ).toBe(true);
   });
 });
 
@@ -491,7 +388,6 @@ describe('#59 popup polish controls', () => {
     for (const id of [
       'feat-leaderboard',
       'feat-copy-md',
-      'feat-starchart',
       'feat-bookmark-folders',
       'feat-bookmark-count',
       'grok-temp-chat',
@@ -569,7 +465,7 @@ describe('#69/#72 user self-test polish', () => {
     expect(contentJs).toMatch(/article\.getClientRects\(\)\.length\s*===\s*0/);
     expect(contentJs).toMatch(/isLeaderboardArticleHidden\(article\)\)\s*continue/);
     expect(contentJs).toMatch(/setTimeout\(renderLeaderboard,\s*80\)/);
-    expect(contentJs).toMatch(/if\s*\(!top\.length\)\s*\{[\s\S]*?list\.innerHTML\s*=\s*['"]['"][\s\S]*?el\.style\.display\s*=\s*['"]none['"]/);
+    expect(contentJs).toMatch(/if\s*\(!pool\.length\)\s*\{[\s\S]*?list\.innerHTML\s*=\s*['"]['"][\s\S]*?el\.style\.display\s*=\s*['"]none['"]/);
     expect(contentJs).toMatch(/closest\?\.\(['"]\.xvm-lb-controls, \.xvm-lb-hot, label, button, input, a['"]\)/);
     expect(bridgeJs).not.toMatch(/XVM_LIST_MEMBER_FILTER_SET_ENABLED/);
     expect(bridgeJs).not.toMatch(/xvm-lb-list-member/);
@@ -670,7 +566,6 @@ describe('update notice modal', () => {
   });
 
   it('explains where each release-note feature can be enabled or used', () => {
-    expect(contentJs).toContain('设置 → AI 生成评论');
     expect(contentJs).toContain('新增评论时按 Enter 直接发送评论的功能');
     expect(contentJs).toContain('生效范围可以在 Popup 或悬浮面板设置里勾选');
     expect(contentJs).toContain('设置 → 其他功能里可以开启书签文件夹菜单和显示书签数');
@@ -707,11 +602,10 @@ describe('update notice modal', () => {
     expect(contentJs).toContain("clone.querySelector('.xvm-copy-md-source')?.parentElement");
     expect(contentJs).toContain('xvm-copy-comments-item');
     expect(contentJs).toContain('buildTweetWithVisibleCommentsMarkdown(ctx)');
-    const observerBlock = contentJs.match(/if \(!isShareMenu\(menu\)\) continue;[\s\S]*?injectStarChartItem\(menu\);/)?.[0] || '';
+    const observerBlock = contentJs.match(/if \(!isShareMenu\(menu\)\) continue;[\s\S]*?injectCopyTweetCommentsItem\(menu\);/)?.[0] || '';
     expect(observerBlock).toContain('injectCopyMarkdownItem(menu);');
     expect(observerBlock).toContain('injectCopyTweetCommentsItem(menu);');
     expect(observerBlock.indexOf('injectCopyMarkdownItem(menu);')).toBeLessThan(observerBlock.indexOf('injectCopyTweetCommentsItem(menu);'));
-    expect(observerBlock.indexOf('injectCopyTweetCommentsItem(menu);')).toBeLessThan(observerBlock.indexOf('injectStarChartItem(menu);'));
   });
 
   it('matches status links with X detail suffixes before rendering badges', () => {
@@ -781,90 +675,6 @@ describe('#45 i18n lock-step (content.js i18n() ↔ bridge CONTENT_MESSAGE_KEYS 
     expect(dashJs).toMatch(/chrome\.runtime\.getManifest\(\)\.version/);
     expect(dashJs).toMatch(/function\s+renderPopupVersion\(\)/);
     expect(dashJs).toMatch(/getElementById\(['"]popup-version['"]\)/);
-  });
-});
-
-describe('#15 AI comment provider contract', () => {
-  it('ships a background service worker for provider calls without broad host permissions', () => {
-    expect(manifest.background?.service_worker).toBe('background.js');
-    expect(buildDistJs).toContain("'background.js'");
-    expect(manifest.host_permissions).not.toContain('<all_urls>');
-    for (const pattern of [
-      'http://localhost/*',
-      'http://127.0.0.1/*',
-      'https://api.openai.com/*',
-      'https://api.deepseek.com/*',
-      'https://openrouter.ai/*',
-      'https://api.moonshot.ai/*',
-      'https://dashscope.aliyuncs.com/*',
-      'https://api.siliconflow.cn/*',
-    ]) {
-      expect(manifest.host_permissions).toContain(pattern);
-    }
-  });
-
-  it('keeps AI API keys out of sync storage and the MAIN-world content script', () => {
-    expect(/chrome\.storage\.local\.set\(\s*\{\s*xvmAiApiKey/.test(popupJs)).toBe(true);
-    expect(/chrome\.storage\.sync\.set\(syncPatch/.test(popupJs)).toBe(true);
-    expect(contentJs).not.toContain('xvmAiApiKey');
-    expect(bridgeJs).not.toContain('xvmAiApiKey');
-  });
-
-  it('routes non-Grok AI generation through bridge → background with request IDs', () => {
-    expect(contentJs).toContain("type: 'XVM_AI_GENERATE'");
-    expect(contentJs).toContain('XVM_AI_GENERATE_RESULT');
-    expect(contentJs).toContain('XVM_AI_GENERATE_PROGRESS');
-    expect(contentJs).toContain("aiProvider === 'x-grok'");
-    expect(contentJs).toContain('requestExternalAiGeneration');
-    expect(contentJs).toContain('onProgress');
-    expect(bridgeJs).toContain('XVM_AI_GENERATE_PROGRESS');
-    expect(bridgeJs).toContain('XVM_AI_GENERATE_RESULT');
-    expect(bridgeJs).toContain('payload: event.data.payload || {}');
-    expect(backgroundJs).toContain('XVM_AI_GENERATE_PROGRESS');
-    expect(backgroundJs).toContain('generateWithOpenAICompatible(config, message.payload || {}, emitProgress)');
-    expect(bridgeJs).not.toContain('bridgeAiRequests');
-    expect(bridgeJs).not.toContain("请通过页面上的 AI 生成按钮发起请求");
-    expect(bridgeJs).not.toContain('bridgeGenerateExternalAi');
-    expect(bridgeJs).not.toContain('AI_GENERATE_ACTIVATION_TTL_MS');
-    expect(bridgeJs).not.toContain('consumeAiGenerateActivation');
-    expect(backgroundJs).toContain("message.type === 'XVM_AI_GENERATE'");
-  });
-
-  it('supports X Grok, Ollama, and OpenAI-compatible presets in popup and background', () => {
-    for (const value of ['x-grok', 'ollama', 'openai-compatible']) {
-      expect(popupJs).toContain(value);
-      expect(backgroundJs).toContain(value);
-    }
-    for (const platform of ['openai', 'deepseek', 'openrouter', 'kimi', 'qwen', 'siliconflow', 'lmstudio', 'ollamaOpenAI']) {
-      expect(popupJs).toContain(platform);
-      expect(backgroundJs).toContain(platform);
-    }
-    expect(backgroundJs).toContain('generateWithOllama');
-    expect(backgroundJs).toContain('generateWithOpenAICompatible');
-    expect(backgroundJs).toContain('assertAllowedOpenAIBaseUrl');
-    expect(backgroundJs).toContain('assertAllowedOllamaBaseUrl');
-  });
-
-  it('resets OpenAI-compatible fields when switching back from Ollama', () => {
-    expect(popupJs).toContain("if (aiProviderSelect.value === 'ollama')");
-    expect(popupJs).toContain("if (aiBaseUrlInput) aiBaseUrlInput.value = 'http://localhost:11434'");
-    expect(popupJs).toContain("if (aiModelInput) aiModelInput.value = 'llama3.1'");
-    expect(popupJs).toContain("} else if (aiProviderSelect.value === 'openai-compatible') {\n    applyAiPlatformPreset(aiPlatformSelect?.value, true);");
-  });
-
-  it('shows temporary success feedback on the AI provider save button', () => {
-    expect(popupJs).toContain('const buttonRestoreTimers = new WeakMap()');
-    expect(popupJs).toContain('function showButtonSaved(button)');
-    expect(popupJs).toContain("button.textContent = tr('btnSaved') || tr('flashSaved') || 'Saved'");
-    expect(popupJs).toContain('showButtonSaved(aiProviderSaveBtn)');
-  });
-
-  it('does not render a separate third-party AI candidate panel in bridge', () => {
-    expect(bridgeJs).not.toContain('function bridgeShowGrokOptions');
-    expect(bridgeJs).not.toContain('function bridgeInsertTextIntoReply');
-    expect(bridgeJs).not.toContain('xvm-grok-options-list');
-    expect(contentJs).toContain('function showGrokOptions');
-    expect(contentJs).toContain('showGrokOptions(running, editable, { streaming: true, anchor: btn })');
   });
 });
 

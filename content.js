@@ -71,7 +71,6 @@ const LB_COLUMN_LABEL_KEYS = {
 let leaderboardColumns = DEFAULT_LB_COLUMNS.map((c) => ({ ...c }));
 let badgeStyle = 'pill-solid';
 let copyAsMarkdownEnabled = true;
-let starChartEnabled = true;
 let showBookmarkCount = true;
 let leaderboardEdgeHideEnabled = true;
 let bookmarkTimelineInjectEnabled = false;
@@ -118,7 +117,6 @@ window.__xvmBtiState = () => {
 };
 
 const RELEASE_NOTE_ITEMS = [
-  ['contentUpdateItemAiProviderTitle', 'contentUpdateItemAiProviderBody', 'AI 评论服务', '在设置 → AI 生成评论里选择服务来源：可以继续使用 X Grok，也可以接入 OpenAI 兼容接口、DeepSeek、OpenRouter 或本机 Ollama。'],
   ['contentUpdateItemReplyToolsTitle', 'contentUpdateItemReplyToolsBody', 'Enter 直接回复', '新增评论时按 Enter 直接发送评论的功能。在设置 → 其他功能 → 按 Enter 直接回复开启后，回复框里不用再按 Command + Enter。'],
   ['contentUpdateItemHotOnlyTitle', 'contentUpdateItemHotOnlyBody', '仅看热帖状态更清楚', '开启仅看热帖后，低于热帖标准的帖子会直接从页面移除；生效范围可以在 Popup 或悬浮面板设置里勾选。'],
   ['contentUpdateItemBookmarkToolsTitle', 'contentUpdateItemBookmarkToolsBody', '书签功能别错过', '在设置 → 其他功能里可以开启书签文件夹菜单和显示书签数。开启后可选择保存文件夹、查看保存位置，并在时间线直接看到书签数量。'],
@@ -274,7 +272,6 @@ window.addEventListener('message', (event) => {
   }
 
   copyAsMarkdownEnabled = event.data.featureCopyAsMarkdown !== false;
-  starChartEnabled = event.data.featureStarChart !== false;
   const nextBookmarkTimelineEnabled = event.data.featureBookmarkTimelineInject === true;
   const nextBookmarkTimelineFolderIds = Array.isArray(event.data.bookmarkTimelineInjectFolderIds)
     ? event.data.bookmarkTimelineInjectFolderIds.map(String).filter(Boolean)
@@ -304,200 +301,24 @@ window.postMessage({ type: 'XVM_REQUEST_SETTINGS' }, '*');
 
 // === Request Interception (fetch + XHR) ===
 const GRAPHQL_RE = /\/(?:i\/api\/)?graphql\//;
-const DEFAULT_GROK_COMMENT_PROMPT = '[推文内容]\n\n为我生成针对该推文的10条评论,每条评论用代码块包裹';
-const DEFAULT_GROK_PROMPT_TEMPLATES = [
-  { id: 'default', name: '默认评论', prompt: DEFAULT_GROK_COMMENT_PROMPT },
-  { id: 'short-cn', name: '中文短评', prompt: '[推文内容]\n\n为该推文生成10条自然、简短、像真人回复的中文评论,每条评论用代码块包裹' },
-  { id: 'sharp', name: '犀利观点', prompt: '[推文内容]\n\n为该推文生成10条有观点、有信息密度、但不人身攻击的评论,每条评论用代码块包裹' },
-  { id: 'tieba-laoge', name: '贴吧老哥', prompt: '[推文内容]\n\n用贴吧老哥的语气为该推文生成10条评论。要求：\n- 每条评论用代码块包裹' },
-  { id: 'point-by-point', name: '针对性回应', prompt: '[推文内容]\n\n为该推文生成10条评论。要求：每条都针对推文里的一个具体观点、论据或例子回应（赞同/质疑/补充），不要笼统夸奖；语气自然像真人；每条评论只包含可直接发布的评论正文，用代码块包裹。' },
-  { id: 'deep-dive', name: '深度回应', prompt: '[推文内容]\n\n挑出这条推文里最值得讨论的3-5个点，围绕这些点生成10条有信息密度的评论（延伸思考、反例、或个人经验），每条评论只包含可直接发布的评论正文，用代码块包裹。' },
-];
-
-// --- prompt-normalize:start ---
-// Templates are user-authored, so the two things the pipeline actually needs
-// are patched in here instead of being the user's problem: the tweet
-// placeholder (so the source post has a defined position) and the
-// "one code block per reply" instruction (the reply parser keys off it).
-const GROK_TWEET_PLACEHOLDER = '[推文内容]';
-const GROK_CODE_BLOCK_RE = /代码块|代碼區塊|コードブロック|code block/i;
-const GROK_CODE_BLOCK_HINT = {
-  ja: '各返信は、そのまま投稿できる本文だけをコードブロックで囲んで出力してください。',
-  zh: '每条评论只包含可直接发布的评论正文，用代码块包裹。',
-  en: 'Output only ready-to-post reply text, each inside its own code block.',
-};
-
-function normalizeGrokPromptText(prompt) {
-  let out = String(prompt || '').trim();
-  if (!out) return out;
-  if (!out.includes(GROK_TWEET_PLACEHOLDER)) out = `${GROK_TWEET_PLACEHOLDER}\n\n${out}`;
-  if (!GROK_CODE_BLOCK_RE.test(out)) {
-    // Match the template's own language so the appended line doesn't read
-    // like a second prompt bolted on.
-    const body = out.slice(GROK_TWEET_PLACEHOLDER.length);
-    const lang = /[\u3040-\u30ff]/.test(body) ? 'ja' : /[\u4e00-\u9fff]/.test(body) ? 'zh' : 'en';
-    out += `\n\n${GROK_CODE_BLOCK_HINT[lang]}`;
-  }
-  return out;
-}
-// --- prompt-normalize:end ---
-
-let grokPromptTemplate = DEFAULT_GROK_COMMENT_PROMPT;
-let grokPromptTemplates = DEFAULT_GROK_PROMPT_TEMPLATES.map((tpl) => ({ ...tpl }));
-let grokSelectedTemplateId = 'default';
-let grokTemporaryChat = true;
+// AI reply generation removed locally (2026-11-11). Only the Enter-to-reply
+// setting survives; it still arrives on the old XVM_GROK_SETTINGS_* channel.
 let grokEnterToReply = false;
 let grokLastReplyArticle = null;
-let aiProvider = 'x-grok';
-let aiOpenAIPlatform = 'openai';
-let aiBaseUrl = 'https://api.openai.com/v1';
-let aiModel = 'gpt-4o-mini';
-let aiReplyCount = 10;
-let aiLanguage = 'auto';
-let aiRequestSeq = 0;
-const aiPendingRequests = new Map();
 
 window.postMessage({ type: 'XVM_GROK_SETTINGS_REQUEST' }, '*');
 
-// Pre-warm tx-id context so the first AI 生成 click is fast.
+// Pre-warm tx-id context for the TweetDetail fallback fetcher.
 window.__xvmXct?.warmup?.();
 
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
   if (event.origin !== window.location.origin) return;
   if (event.data?.type !== 'XVM_GROK_SETTINGS_LOAD') return;
-  if (typeof event.data.promptTemplate === 'string' && event.data.promptTemplate.trim()) {
-    grokPromptTemplate = event.data.promptTemplate;
-  }
-  if (Array.isArray(event.data.promptTemplates) && event.data.promptTemplates.length) {
-    grokPromptTemplates = normalizeGrokPromptTemplates(event.data.promptTemplates);
-  } else if (grokPromptTemplate) {
-    grokPromptTemplates = normalizeGrokPromptTemplates([{ id: 'default', name: '默认评论', prompt: grokPromptTemplate }]);
-  }
-  if (typeof event.data.selectedPromptId === 'string' && event.data.selectedPromptId) {
-    grokSelectedTemplateId = event.data.selectedPromptId;
-  }
-  if (typeof event.data.temporaryChat === 'boolean') {
-    grokTemporaryChat = event.data.temporaryChat;
-  }
   if (typeof event.data.enterToReply === 'boolean') {
     grokEnterToReply = event.data.enterToReply;
   }
-  if (['x-grok', 'ollama', 'openai-compatible'].includes(event.data.aiProvider)) {
-    aiProvider = event.data.aiProvider;
-  }
-  if (typeof event.data.aiOpenAIPlatform === 'string' && event.data.aiOpenAIPlatform) {
-    aiOpenAIPlatform = event.data.aiOpenAIPlatform;
-  }
-  if (typeof event.data.aiBaseUrl === 'string') {
-    aiBaseUrl = event.data.aiBaseUrl;
-  }
-  if (typeof event.data.aiModel === 'string') {
-    aiModel = event.data.aiModel;
-  }
-  const nextReplyCount = Number.parseInt(event.data.aiReplyCount, 10);
-  if (Number.isFinite(nextReplyCount)) {
-    aiReplyCount = Math.max(1, Math.min(20, nextReplyCount));
-  }
-  if (['auto', 'zh_CN', 'en', 'ja'].includes(event.data.aiLanguage)) {
-    aiLanguage = event.data.aiLanguage;
-  }
 });
-
-// AI progress/result bridge (ISOLATED world -> MAIN).
-// Defense in depth:
-// 1) event.source === window (page context only; already required)
-// 2) event.origin === location.origin — blocks cross-origin frames.
-//    Note: same-page scripts share origin, so origin alone (as in #23) does
-//    NOT stop same-page spoofing; that is why we also require (3).
-// 3) requestId must already be in aiPendingRequests — unknown spoofed
-//    requestIds are no-ops even from same-origin/same-window scripts.
-window.addEventListener('message', (event) => {
-  if (event.source !== window) return;
-  if (event.origin !== window.location.origin) return;
-  if (event.data?.type === 'XVM_AI_GENERATE_PROGRESS') {
-    const pending = aiPendingRequests.get(event.data.requestId);
-    if (!pending || !Array.isArray(event.data.comments)) return;
-    pending.onProgress?.(event.data.comments);
-    return;
-  }
-  if (event.data?.type !== 'XVM_AI_GENERATE_RESULT') return;
-  const requestId = event.data.requestId;
-  const pending = aiPendingRequests.get(requestId);
-  if (!pending) return;
-  clearTimeout(pending.timer);
-  aiPendingRequests.delete(requestId);
-  if (event.data.ok && Array.isArray(event.data.comments)) {
-    pending.resolve(event.data.comments);
-  } else {
-    pending.reject(new Error(event.data.error || 'AI 生成失败'));
-  }
-});
-
-// === Star Chart: GraphQL endpoint template capture ===
-// Learns the latest queryId + features blob X is using for known operations,
-// plus the bearer token + ct0 csrf header. Persists to chrome.storage.local
-// so the star-chart fetcher can replay the same shape later.
-const STARCHART_OPS = ['Retweeters', 'SearchTimeline'];
-const STARCHART_GRAPHQL_RE = /\/i\/api\/graphql\/([^/]+)\/([^?]+)/;
-
-function recordStarChartTemplate(url, requestHeaders) {
-  const m = url.match(STARCHART_GRAPHQL_RE);
-  if (!m) return;
-  const queryId = m[1];
-  const opName = m[2];
-
-  // The Bearer token is identical across all X GraphQL operations, so
-  // capture it from ANY call (TweetDetail, HomeTimeline, etc.) into a
-  // shared `_global` slot. queryId is per-op and only stored for our
-  // target ops (Retweeters / SearchTimeline).
-  // Bearer is auto-cached in __xvmNet.getBearer() — we only need to forward
-  // the global capture for star chart's persistent storage.
-  const auth = requestHeaders?.authorization || requestHeaders?.Authorization || null;
-  if (auth) {
-    window.postMessage({
-      type: 'XVM_SC_TEMPLATE_CAPTURE',
-      op: '_global',
-      template: { authorization: auth },
-    }, '*');
-  }
-
-  if (!STARCHART_OPS.includes(opName)) return;
-
-  let featuresStr = null;
-  try {
-    const u = new URL(url, location.origin);
-    featuresStr = u.searchParams.get('features');
-  } catch (_) {}
-
-  const update = { queryId };
-  if (featuresStr) update.features = featuresStr;
-  if (auth) update.authorization = auth;
-
-  window.postMessage({
-    type: 'XVM_SC_TEMPLATE_CAPTURE',
-    op: opName,
-    template: update,
-  }, '*');
-}
-
-function normalizeGrokPromptTemplates(raw) {
-  const seen = new Set();
-  const out = [];
-  for (const item of Array.isArray(raw) ? raw : []) {
-    const prompt = String(item?.prompt || '').trim();
-    if (!prompt) continue;
-    const id = String(item?.id || `tpl-${out.length + 1}`).trim() || `tpl-${out.length + 1}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    out.push({
-      id,
-      name: String(item?.name || `模板 ${out.length + 1}`).trim() || `模板 ${out.length + 1}`,
-      prompt,
-    });
-  }
-  return out.length ? out : DEFAULT_GROK_PROMPT_TEMPLATES.map((tpl) => ({ ...tpl }));
-}
 
 function reportRateLimit(remaining, reset) {
   if (remaining === null || remaining === undefined) return;
@@ -510,7 +331,6 @@ function reportRateLimit(remaining, reset) {
 
 // Subscribe to GraphQL traffic for star-chart template capture + tweet scanning.
 window.__xvmNet?.onRequest(GRAPHQL_RE, ({ url, headers }) => {
-  recordStarChartTemplate(url, headers);
   captureBookmarkTimelineQueryId(url);
 });
 window.__xvmNet?.onResponse(GRAPHQL_RE, async ({ url, response, source }) => {
@@ -673,6 +493,42 @@ function countBookmarkTimelineHomeEntries(json) {
 // pin themselves to the top of the leaderboard.
 // Catch it at the entry level, where the marker actually is.
 // Recursively scan any JSON for tweet_results objects
+// Author follower counts (local addition). X has moved user fields between
+// `legacy`, `core` and other blocks before, so read every known spot and
+// cache by handle: a tweet whose payload lacks the count can still use one
+// seen elsewhere (hover cards, profile loads, other tweets).
+const followerCountByHandle = new Map();
+window.__xvmFollowerDebug = { seenUsers: 0, cached: 0, rendered: 0, noCount: 0, noAvatar: 0 };
+
+function readUserFollowers(user) {
+  if (!user || typeof user !== 'object') return null;
+  const candidates = [
+    user.legacy?.followers_count,
+    user.legacy?.normal_followers_count,
+    user.core?.followers_count,
+    user.relationship_counts?.followers,
+    user.relationship_counts?.followers_count,
+    user.followers_count,
+  ];
+  for (const raw of candidates) {
+    const n = typeof raw === 'string' ? Number.parseInt(raw, 10) : raw;
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return null;
+}
+
+function rememberUserFollowers(user) {
+  if (!user || typeof user !== 'object') return null;
+  const handle = user.core?.screen_name || user.legacy?.screen_name || user.screen_name || '';
+  const followers = readUserFollowers(user);
+  window.__xvmFollowerDebug.seenUsers++;
+  if (handle && followers != null) {
+    followerCountByHandle.set(handle.toLowerCase(), followers);
+    window.__xvmFollowerDebug.cached = followerCountByHandle.size;
+  }
+  return followers;
+}
+
 function scanForTweets(obj) {
   if (!obj || typeof obj !== 'object') return;
   let found = false;
@@ -685,6 +541,10 @@ function scanForTweets(obj) {
       tweetDataStore.delete(promotedId);
     }
     return; // do not descend - nothing under an ad entry belongs in the store
+  }
+
+  if (obj.__typename === 'User' && (obj.legacy || obj.core)) {
+    rememberUserFollowers(obj);
   }
 
   const result = obj.tweet_results?.result
@@ -746,6 +606,7 @@ function extractTweetData(result) {
   const screenName = tweet.core?.user_results?.result?.legacy?.screen_name
     || tweet.core?.user_results?.result?.core?.screen_name
     || '';
+  const followers = rememberUserFollowers(tweet.core?.user_results?.result);
   // Rewrite the opaque /i/article/<articleId> form X serializes into the
   // human-readable /<handle>/article/<tweetId> form. Same article, but the
   // copied markdown points back to the post the user actually shared.
@@ -802,6 +663,7 @@ function extractTweetData(result) {
     retweets: legacy.retweet_count || 0,
     replies: legacy.reply_count || 0,
     bookmarks: legacy.bookmark_count || 0,
+    followers,
     createdAt: legacy.created_at,
     text: noteText || legacy.full_text || '',
     urlMap,
@@ -1310,6 +1172,44 @@ function getTooltip() {
 }
 
 // === Badge Rendering ===
+// Author follower count under the avatar (local addition).
+function formatFollowers(n) {
+  if (n < 1000) return String(n);
+  if (n < 10000) return (Math.floor(n / 100) / 10).toFixed(1).replace(/\.0$/, '') + 'K';
+  if (n < 1000000) return Math.floor(n / 1000) + 'K';
+  return (Math.floor(n / 100000) / 10).toFixed(1).replace(/\.0$/, '') + 'M';
+}
+
+function findAvatarColumn(article, avatar) {
+  const userName = Array.from(article.querySelectorAll('[data-testid="User-Name"]'))
+    .find((node) => node.closest('article[data-testid="tweet"]') === article);
+  let col = avatar;
+  while (col.parentElement && col.parentElement !== article) {
+    if (userName && col.parentElement.contains(userName)) return col;
+    col = col.parentElement;
+  }
+  return avatar.parentElement;
+}
+
+function renderFollowerCount(article, data) {
+  const followers = data.followers ?? followerCountByHandle.get(String(data.screenName || '').toLowerCase());
+  if (followers == null) { window.__xvmFollowerDebug.noCount++; return; }
+  const avatar = Array.from(article.querySelectorAll('[data-testid="Tweet-User-Avatar"]'))
+    .find((node) => node.closest('article[data-testid="tweet"]') === article);
+  if (!avatar) { window.__xvmFollowerDebug.noAvatar++; return; }
+  const column = findAvatarColumn(article, avatar);
+  if (!column) { window.__xvmFollowerDebug.noAvatar++; return; }
+  let label = column.querySelector(':scope > .xvm-followers');
+  if (!label) {
+    label = document.createElement('div');
+    label.className = 'xvm-followers';
+    column.appendChild(label);
+    window.__xvmFollowerDebug.rendered++;
+  }
+  label.textContent = formatFollowers(followers);
+  label.title = `${followers.toLocaleString()} followers`;
+}
+
 function renderBadges() {
   const articles = document.querySelectorAll('article[data-testid="tweet"]');
   for (const article of articles) {
@@ -1319,8 +1219,11 @@ function renderBadges() {
     if (!data) continue;
 
     if (article.hasAttribute('data-xvm-scored')) {
-      if (article.getAttribute('data-xvm-scored-id') === tweetId) continue;
-      article.querySelectorAll(':scope .xvm-badge').forEach((badge) => badge.remove());
+      if (article.getAttribute('data-xvm-scored-id') === tweetId) {
+        if (!article.querySelector('.xvm-followers')) renderFollowerCount(article, data);
+        continue;
+      }
+      article.querySelectorAll(':scope .xvm-badge, :scope .xvm-followers').forEach((badge) => badge.remove());
       article.removeAttribute('data-xvm-scored');
     }
 
@@ -1345,6 +1248,7 @@ function renderBadges() {
     // Only mark scored after we confirmed headerRow is valid
     article.setAttribute('data-xvm-scored', '1');
     article.setAttribute('data-xvm-scored-id', tweetId);
+    renderFollowerCount(article, data);
 
     const { velocity, score } = computeScore(data);
     // 🌱 normal | 🚀 trending | 🔥 viral
@@ -1547,6 +1451,15 @@ function ensureLeaderboard() {
       </button>
     </div>
     <div class="xvm-lb-hot-notice" hidden></div>
+    <div class="xvm-lb-sortbar">
+      <div class="xvm-lb-sort-modes" role="group" aria-label="排序">
+        <button type="button" data-sort="velocity" title="按流速从高到低">流速</button>
+        <button type="button" data-sort="newest" title="按发布时间从近到久">最新</button>
+        <button type="button" data-sort="replies" title="按评论数从少到多">评论少</button>
+      </div>
+      <label class="xvm-lb-limit" title="只看这么多小时内发布的帖子，留空不限">≤<input class="xvm-lb-max-age" type="number" min="0" step="0.5" placeholder="不限">小时</label>
+      <label class="xvm-lb-limit" title="只看评论数不超过这个数的帖子，留空不限">≤<input class="xvm-lb-max-replies" type="number" min="0" step="1" placeholder="不限">评论</label>
+    </div>
     <ul class="xvm-lb-list"></ul>
     <div class="xvm-lb-resize" aria-hidden="true"></div>
     <div class="xvm-lb-resize-v" aria-hidden="true"></div>
@@ -1567,6 +1480,7 @@ function ensureLeaderboard() {
     </button>
   `);
   leaderboardEl.querySelector('.xvm-lb-head').appendChild(controls);
+  installLeaderboardSortBar(leaderboardEl);
 
   document.body.appendChild(leaderboardEl);
   applyLeaderboardWidth();
@@ -3174,6 +3088,89 @@ function rememberLeaderboardItem(entry) {
   leaderboardItemMeta.set(entry.id, entry);
 }
 
+// === Leaderboard sort / filter (local addition) ===
+// Goal: spot posts that are fresh, fast and still quiet, then reply early.
+// Pool = every tweet seen on this URL (on screen or scrolled past).
+const LB_SORT_KEY = 'xvmLbSortV1';
+let lbSort = { mode: 'velocity', maxAgeHours: null, maxReplies: null };
+try {
+  const saved = JSON.parse(localStorage.getItem(LB_SORT_KEY) || 'null');
+  if (saved && typeof saved === 'object') lbSort = { ...lbSort, ...saved };
+} catch (_) {}
+
+function saveLbSort() {
+  try { localStorage.setItem(LB_SORT_KEY, JSON.stringify(lbSort)); } catch (_) {}
+}
+
+function parseLbLimit(value) {
+  const n = Number.parseFloat(String(value ?? '').trim());
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function syncLeaderboardSortBar(root = leaderboardEl) {
+  if (!root) return;
+  root.querySelectorAll('.xvm-lb-sort-modes button').forEach((btn) => {
+    btn.setAttribute('aria-pressed', btn.dataset.sort === lbSort.mode ? 'true' : 'false');
+  });
+  const age = root.querySelector('.xvm-lb-max-age');
+  const replies = root.querySelector('.xvm-lb-max-replies');
+  if (age && document.activeElement !== age) age.value = lbSort.maxAgeHours ?? '';
+  if (replies && document.activeElement !== replies) replies.value = lbSort.maxReplies ?? '';
+}
+
+function installLeaderboardSortBar(root) {
+  const bar = root.querySelector('.xvm-lb-sortbar');
+  if (!bar) return;
+  for (const type of ['pointerdown', 'mousedown', 'click', 'keydown']) {
+    bar.addEventListener(type, (ev) => ev.stopPropagation());
+  }
+  bar.querySelectorAll('.xvm-lb-sort-modes button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      lbSort.mode = btn.dataset.sort;
+      saveLbSort();
+      syncLeaderboardSortBar(root);
+      renderLeaderboard();
+    });
+  });
+  const bindLimit = (selector, key) => {
+    const input = bar.querySelector(selector);
+    input?.addEventListener('input', () => {
+      lbSort[key] = parseLbLimit(input.value);
+      saveLbSort();
+      renderLeaderboard();
+    });
+  };
+  bindLimit('.xvm-lb-max-age', 'maxAgeHours');
+  bindLimit('.xvm-lb-max-replies', 'maxReplies');
+  syncLeaderboardSortBar(root);
+}
+
+function sortAndFilterLeaderboard(entries) {
+  const now = Date.now();
+  const out = entries.filter((e) => {
+    const ageHours = (now - e.createdMs) / 3600000;
+    if (lbSort.maxAgeHours != null && lbSort.maxAgeHours > 0 && ageHours > lbSort.maxAgeHours) return false;
+    if (lbSort.maxReplies != null && e.replies > lbSort.maxReplies) return false;
+    return true;
+  });
+  if (lbSort.mode === 'newest') {
+    out.sort((a, b) => b.createdMs - a.createdMs);
+  } else if (lbSort.mode === 'replies') {
+    out.sort((a, b) => (a.replies - b.replies) || (b.velocity - a.velocity));
+  } else {
+    out.sort((a, b) => b.velocity - a.velocity);
+  }
+  return out;
+}
+
+function formatLbAge(createdMs) {
+  const mins = Math.max(0, Math.floor((Date.now() - createdMs) / 60000));
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
 function collectRanked() {
   const out = [];
   const seen = new Set();
@@ -3201,11 +3198,32 @@ function collectRanked() {
       pageY: window.scrollY + article.getBoundingClientRect().top,
       velocity,
       views: data.views || 0,
+      replies: data.replies || 0,
+      createdMs: new Date(data.createdAt).getTime(),
+      url: location.href,
+      data,
       handle,
       text: data.text,
     };
     rememberLeaderboardItem(entry);
     out.push(entry);
+  }
+  // Tweets seen earlier on this same page but no longer in the DOM
+  // (X recycles off-screen rows). Their velocity is recomputed from the
+  // stored numbers so it stays comparable.
+  for (const [id, meta] of leaderboardItemMeta) {
+    if (seen.has(id) || meta.url !== location.href || !meta.data) continue;
+    if (promotedTweetIds.has(id)) continue;
+    if (meta.article?.isConnected && isLeaderboardArticleHidden(meta.article)) continue;
+    seen.add(id);
+    const fresh = tweetDataStore.get(id) || meta.data;
+    out.push({
+      ...meta,
+      data: fresh,
+      velocity: computeScore(fresh).velocity,
+      views: fresh.views || 0,
+      replies: fresh.replies || 0,
+    });
   }
   return out.sort((a, b) => b.velocity - a.velocity);
 }
@@ -3291,9 +3309,11 @@ function renderLeaderboard() {
       return;
     }
     const el = ensureLeaderboard();
-    const top = collectRanked().slice(0, leaderboardCount);
+    syncLeaderboardSortBar(el);
+    const pool = collectRanked();
+    const top = sortAndFilterLeaderboard(pool).slice(0, leaderboardCount);
     const list = el.querySelector('.xvm-lb-list');
-    if (!top.length) {
+    if (!pool.length) {
       if (list) list.innerHTML = '';
       el.style.display = 'none';
       clearLink();
@@ -3301,13 +3321,20 @@ function renderLeaderboard() {
     }
     el.style.display = 'block';
     if (leaderboardHiddenEdge) positionHiddenLeaderboard(leaderboardHiddenEdge);
+    if (!top.length) {
+      // Keep the panel up so the filters can be loosened.
+      if (list) list.innerHTML = '<li class="xvm-lb-empty">没有符合条件的帖子，放宽上面的条件试试</li>';
+      clearLink();
+      return;
+    }
     const visibleCols = leaderboardColumns.filter((c) => c.visible && LB_COLUMN_RENDERERS[c.id]);
     list.innerHTML = top.map((t, i) => {
       const tier = t.velocity >= velocityThresholds.viral ? 'red'
         : t.velocity >= velocityThresholds.trending ? 'orange'
           : 'green';
       const cells = visibleCols.map((c) => LB_COLUMN_RENDERERS[c.id](t, i)).join('');
-      return `<li class="xvm-lb-item xvm-lb-${tier}" data-id="${t.id}">${cells}</li>`;
+      const meta = `<span class="xvm-lb-meta" title="发布时间 · 评论数">${formatLbAge(t.createdMs)} · \u{1F4AC}${formatViews(t.replies)}</span>`;
+      return `<li class="xvm-lb-item xvm-lb-${tier}" data-id="${t.id}">${cells}${meta}</li>`;
     }).join('');
 
     list.querySelectorAll('.xvm-lb-item').forEach((li) => {
@@ -3509,51 +3536,16 @@ window.addEventListener('scroll', () => {
 }, { passive: true });
 
 // === MutationObserver ===
-let composerInjectScheduled = false;
-function scheduleComposerInject() {
-  if (composerInjectScheduled) return;
-  composerInjectScheduled = true;
-  // rAF + microtask defer so we re-inject AFTER X finishes its layout pass.
-  // Without this, X's burger-menu open/close (which rebuilds composer DOM
-  // without re-emitting a textarea-added event we recognize) drops our button.
-  requestAnimationFrame(() => {
-    composerInjectScheduled = false;
-    injectGrokReplyButtons();
-  });
-}
-
-const COMPOSER_SEL = '[data-testid="tweetTextarea_0"], div[role="textbox"][contenteditable="true"], textarea[placeholder], textarea[aria-label]';
-
 const observer = new MutationObserver((mutations) => {
-  let hasNewArticles = false;
-  let touchedComposer = false;
   for (const mutation of mutations) {
     for (const node of mutation.addedNodes) {
       if (node.nodeType !== 1) continue;
       if (node.tagName === 'ARTICLE' || node.querySelector?.('article[data-testid="tweet"]')) {
-        hasNewArticles = true;
-      }
-      if (node.matches?.(COMPOSER_SEL) || node.querySelector?.(COMPOSER_SEL)) {
-        touchedComposer = true;
+        renderBadges();
+        return;
       }
     }
-    // Detect cases where X tore down a wrapper that contained our button (e.g.
-    // burger menu open/close rebuilds the composer subtree). Re-inject so the
-    // button reappears without requiring an Esc keypress.
-    if (!touchedComposer) {
-      for (const node of mutation.removedNodes) {
-        if (node.nodeType !== 1) continue;
-        if (node.classList?.contains?.('xvm-grok-generate-btn')
-          || node.querySelector?.('.xvm-grok-generate-btn')) {
-          touchedComposer = true;
-          break;
-        }
-      }
-    }
-    if (hasNewArticles && touchedComposer) break;
   }
-  if (hasNewArticles) renderBadges();
-  if (touchedComposer) scheduleComposerInject();
 });
 
 function startObserver() {
@@ -3563,52 +3555,17 @@ function startObserver() {
   });
 }
 
-function bootGrokInjectorRetries() {
-  // Composer mounts asynchronously after React hydrate. The initial inject at
-  // content.js load fires before React is done, finding nothing. The mutation
-  // observer covers most cases but X sometimes adds the composer in a way our
-  // matcher misses. A handful of retry passes during the first few seconds
-  // ensures the button shows up reliably without spinning forever.
-  let tries = 0;
-  const id = setInterval(() => {
-    injectGrokReplyButtons();
-    if (++tries >= 10) clearInterval(id);
-  }, 400);
-}
-
-// Belt-and-suspenders: a low-frequency keepalive that re-injects whenever a
-// composer is on the page but the AI button isn't. Catches edge cases the
-// mutation observer misses (e.g. X swapping a composer's containing div via
-// a property update that doesn't show as a DOM mutation we recognize, SPA
-// navigations that reuse stale node references, etc.). Cost: one DOM lookup
-// every 2s, no-op when button is already there.
-setInterval(() => {
-  const composer = document.querySelector(COMPOSER_SEL);
-  if (composer && !document.querySelector('.xvm-grok-generate-btn')) {
-    injectGrokReplyButtons();
-  }
-}, 2000);
-
 if (document.body) {
   startObserver();
   installEnterToReplyShortcut();
-  injectGrokReplyButtons();
-  bootGrokInjectorRetries();
 } else {
   document.addEventListener('DOMContentLoaded', () => {
     startObserver();
     installEnterToReplyShortcut();
-    injectGrokReplyButtons();
-    bootGrokInjectorRetries();
   });
 }
 
-// Reset on SPA navigation (URL change). Re-trigger Grok button injection
-// because the composer (and its containing structure) is often rebuilt
-// across SPA routes — particularly /compose/post → /home and back, which
-// X reuses for inline-reply composers when navigating from one tweet to
-// another. The observer's added-node detector doesn't always catch this
-// because some routes reuse the same DOM nodes with different state.
+// Reset on SPA navigation (URL change).
 let lastUrl = location.href;
 new MutationObserver(() => {
   if (location.href !== lastUrl) {
@@ -3618,7 +3575,6 @@ new MutationObserver(() => {
     if (pendingLeaderboardJump?.tweetId) {
       waitForLeaderboardTarget(pendingLeaderboardJump.tweetId, pendingLeaderboardJump.itemEl);
     }
-    bootGrokInjectorRetries();
   }
 }).observe(document.body || document.documentElement, { childList: true, subtree: true });
 
@@ -3923,48 +3879,6 @@ function showReleaseNotesModal(version) {
   ok.focus({ preventScroll: true });
 }
 
-function showGrokErrorToast(msg) {
-  const toast = document.createElement('div');
-  toast.className = 'xvm-toast xvm-toast--error xvm-toast--top';
-  const title = document.createElement('div');
-  title.style.fontWeight = '700';
-  title.textContent = '⚠ AI 生成失败';
-  const detail = document.createElement('div');
-  detail.style.fontSize = '12px';
-  detail.style.marginTop = '4px';
-  detail.textContent = String(msg || '请重试');
-  toast.append(title, detail);
-  document.body.appendChild(toast);
-  requestAnimationFrame(() => toast.classList.add('xvm-toast--show'));
-  setTimeout(() => dismissToast(toast), 8000);
-}
-
-function getSelectedGrokPromptTemplate() {
-  return grokPromptTemplates.find((t) => t.id === grokSelectedTemplateId)
-    || grokPromptTemplates[0]
-    || DEFAULT_GROK_PROMPT_TEMPLATES[0];
-}
-
-function getTweetTextFromArticle(article) {
-  const statusId = getStatusIdFromLocation();
-  const tweetId = article ? (getTweetIdFromArticle(article) || statusId) : statusId;
-  const cached = tweetId ? tweetDataStore.get(tweetId) : null;
-  if (cached?.articleMd) {
-    return cached.articleMd.trim();
-  }
-
-  if (!article) return '';
-
-  let text = cached?.text || '';
-  if (!text) {
-    text = Array.from(article.querySelectorAll('[data-testid="tweetText"], div[lang]'))
-      .map((el) => (el.textContent || '').trim())
-      .filter(Boolean)
-      .join('\n');
-  }
-  return text.trim();
-}
-
 function getStatusIdFromLocation() {
   const match = location.pathname.match(/\/status\/(\d+)/);
   return match?.[1] || '';
@@ -3995,16 +3909,6 @@ function findReplyComposerRoot(editable) {
     if (node.matches?.('article[data-testid="tweet"]')) break;
   }
   return editable.closest('form') || editable.parentElement || null;
-}
-
-function findReplyArticle(composerRoot) {
-  const dialog = composerRoot?.closest?.('[role="dialog"]') || composerRoot;
-  const article = dialog?.querySelector?.('article[data-testid="tweet"]');
-  if (article) return article;
-  if (grokLastReplyArticle?.isConnected) return grokLastReplyArticle;
-  const statusArticle = findArticleForCurrentStatus();
-  if (statusArticle) return statusArticle;
-  return null;
 }
 
 function findReplyArticleForEnterShortcut(composerRoot) {
@@ -4040,80 +3944,7 @@ function findReplyArticleForAiComposer(composerRoot) {
   return null;
 }
 
-function findReplyEditable(root = document) {
-  return root.querySelector?.('[data-testid="tweetTextarea_0"][contenteditable="true"], div[role="textbox"][contenteditable="true"], textarea[placeholder], textarea[aria-label]');
-}
-
 const GROK_SUBMIT_SELECTOR = '[data-testid="tweetButton"], [data-testid="tweetButtonInline"]';
-const GROK_DRAFT_CONTAINER_SELECTOR = [
-  '[contenteditable="true"]',
-  '[data-testid="tweetTextarea_0"]',
-  '[data-testid="tweetTextarea_0RichTextInputContainer"]',
-  '.DraftEditor-root',
-  '.DraftEditor-editorContainer',
-  '.public-DraftEditor-content',
-].join(', ');
-
-function isInvalidGrokButtonHost(host, editable) {
-  if (!host || !editable) return true;
-  if (host === editable || host.contains(editable)) return true;
-  return !!host.closest?.(GROK_DRAFT_CONTAINER_SELECTOR);
-}
-
-function findGrokButtonHost(editable, composerRoot) {
-  const scope = composerRoot?.closest?.('[role="dialog"]')
-    || editable.closest('article[data-testid="tweet"]')
-    || editable.closest('form')
-    || composerRoot
-    || editable.parentElement;
-  if (!scope) return null;
-
-  const submitBtn = scope.querySelector?.(GROK_SUBMIT_SELECTOR);
-  const candidates = [];
-  if (window.innerWidth <= 640 && location.pathname === '/compose/post') {
-    const draftBtn = scope.querySelector?.('[data-testid="unsentButton"]');
-    const draftHost = draftBtn?.parentElement;
-    if (!isInvalidGrokButtonHost(draftHost, editable)) {
-      return { host: draftHost, submitBtn, insertBefore: draftBtn, placement: 'mobile-top' };
-    }
-  }
-  if (submitBtn) {
-    const submitHost = submitBtn.parentElement;
-    if (!isInvalidGrokButtonHost(submitHost, editable)) {
-      return { host: submitHost, submitBtn, insertBefore: submitBtn };
-    }
-    candidates.push(submitBtn.parentElement);
-    let node = submitBtn.parentElement;
-    for (let depth = 0; node && node !== scope && depth < 8; depth++, node = node.parentElement) {
-      const hasSubmit = node.querySelector?.(GROK_SUBMIT_SELECTOR);
-      const hasToolbar = node.querySelector?.('[data-testid="toolBar"], [role="group"]');
-      if (hasSubmit && hasToolbar) candidates.push(node);
-    }
-  }
-  const toolbar = scope.querySelector?.('[data-testid="toolBar"]');
-  candidates.push(
-    toolbar?.parentElement,
-    toolbar?.closest?.('[role="group"]')?.parentElement,
-    editable.closest('form')?.querySelector?.('[role="group"]')?.parentElement,
-  );
-
-  for (const host of candidates) {
-    if (!isInvalidGrokButtonHost(host, editable)) {
-      return { host, submitBtn };
-    }
-  }
-  return null;
-}
-
-function prepareGrokActionsHost(host) {
-  if (!host) return;
-  host.classList.add('xvm-grok-actions-host');
-  host.style.setProperty('display', 'flex', 'important');
-  host.style.setProperty('flex-direction', 'row', 'important');
-  host.style.setProperty('align-items', 'center', 'important');
-  host.style.setProperty('gap', '8px', 'important');
-}
-
 function findReplySubmitButton(editable) {
   const root = findReplyComposerRoot(editable);
   const scope = root?.closest?.('[role="dialog"]') || root;
@@ -4145,468 +3976,14 @@ function installEnterToReplyShortcut() {
   }, true);
 }
 
-function cleanupMisplacedGrokButtons(editable, composerRoot = null) {
-  const editorShell = editable?.closest?.('[data-testid="tweetTextarea_0RichTextInputContainer"], .DraftEditor-root, .DraftEditor-editorContainer');
-  editorShell?.querySelectorAll?.('.xvm-grok-generate-btn').forEach((btn) => btn.remove());
-  composerRoot?.querySelectorAll?.('.xvm-grok-generate-btn').forEach((btn) => {
-    if (isInvalidGrokButtonHost(btn.parentElement, editable)) btn.remove();
-  });
-}
-
-function insertTextIntoReply(editable, text) {
-  if (!editable) return false;
-  editable.focus();
-  if (editable.tagName === 'TEXTAREA' || editable.tagName === 'INPUT') {
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
-      || Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-    if (setter) setter.call(editable, text);
-    else editable.value = text;
-    editable.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-    editable.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
-  }
-  // Draft.js editor (X reply box).
-  //
-  // Dispatch a synthetic ClipboardEvent('paste') with a DataTransfer holding
-  // the text. Draft.js's onPaste reads `clipboardData.getData('text/plain')`
-  // and reconciles its internal EditorState — model and DOM stay in sync,
-  // and the reply submit button activates correctly.
-  //
-  // No system clipboard interaction. No execCommand. No selection juggling
-  // either: Draft's paste handler clears whatever is selected (or replaces
-  // current content) by itself, so we don't need to selectAll first.
-  try {
-    const dt = new DataTransfer();
-    dt.setData('text/plain', text);
-    dt.setData('text/html', text); // some Draft variants prefer html — harmless when not used
-    editable.dispatchEvent(new ClipboardEvent('paste', {
-      bubbles: true,
-      cancelable: true,
-      clipboardData: dt,
-    }));
-    return true;
-  } catch (e) {
-    console.warn('[XVM-GROK] paste-event insert failed:', e);
-    return false;
-  }
-}
-
-// Bumped whenever the candidate panel is dismissed (pick / ✕ / Escape) or a
-// new generation starts. An in-flight run compares its own epoch against this
-// and bails out — otherwise its streaming onProgress keeps re-creating the
-// panel after the user already picked a comment.
-let grokGenEpoch = 0;
-
-function closeGrokOptions() {
-  grokGenEpoch += 1;
-  document.querySelectorAll('.xvm-grok-options').forEach((el) => el.remove());
-}
-
-function closeGrokTemplateMenu() {
-  document.querySelectorAll('.xvm-grok-template-menu').forEach((el) => el.remove());
-}
-
-function showGrokTemplateMenu(anchor, editable) {
-  closeGrokTemplateMenu();
-  const templates = normalizeGrokPromptTemplates(grokPromptTemplates);
-  const selectedId = grokSelectedTemplateId;
-  const menu = document.createElement('div');
-  menu.className = 'xvm-grok-template-menu';
-  menu.innerHTML = `
-    <div class="xvm-grok-template-menu-head">评论模板</div>
-    <div class="xvm-grok-template-menu-list"></div>
-  `;
-  const list = menu.querySelector('.xvm-grok-template-menu-list');
-  templates.forEach((tpl) => {
-    const item = document.createElement('button');
-    item.type = 'button';
-    item.className = 'xvm-grok-template-item';
-    item.dataset.templateId = tpl.id;
-    if (tpl.id === selectedId) item.classList.add('xvm-grok-template-item--selected');
-    item.innerHTML = `<span>${tpl.name}</span><small>${tpl.prompt.replace(/\s+/g, ' ').slice(0, 72)}</small>`;
-    item.addEventListener('click', () => {
-      closeGrokTemplateMenu();
-      // Persist selection so the next plain click reuses it.
-      grokSelectedTemplateId = tpl.id;
-      try { chrome.storage?.sync?.set?.({ grokSelectedPromptId: tpl.id }); } catch (_) {}
-      handleGrokGenerate(anchor, editable, tpl);
-    });
-    list.appendChild(item);
-  });
-  document.body.appendChild(menu);
-  const rect = anchor.getBoundingClientRect();
-  const width = Math.min(320, window.innerWidth - 24);
-  menu.style.width = `${width}px`;
-  menu.style.left = `${Math.max(12, Math.min(window.innerWidth - width - 12, rect.right - width))}px`;
-  menu.style.top = `${Math.min(window.innerHeight - menu.offsetHeight - 12, rect.bottom + 8)}px`;
-  setTimeout(() => {
-    document.addEventListener('click', closeGrokTemplateMenu, { once: true, capture: true });
-  }, 0);
-}
-
-// Renders or updates the candidate panel as a popover anchored to the AI
-// button — keeps gaze in one place during the click→pick→fill flow. Re-callable
-// during streaming: each call replaces the list contents in place so users can
-// pick a candidate as soon as it appears.
-function showGrokOptions(comments, editable, opts = {}) {
-  let panel = document.querySelector('.xvm-grok-options');
-  const isNew = !panel;
-  if (isNew) {
-    panel = document.createElement('div');
-    panel.className = 'xvm-grok-options';
-    panel.innerHTML = `
-      <div class="xvm-grok-options-head">
-        <strong>Grok 评论候选</strong>
-        <span class="xvm-grok-options-status" aria-live="polite"></span>
-        <button type="button" class="xvm-grok-close" aria-label="Close">×</button>
-      </div>
-      <div class="xvm-grok-options-list"></div>
-    `;
-    panel.querySelector('.xvm-grok-close')?.addEventListener('click', closeGrokOptions);
-    document.body.appendChild(panel);
-  }
-  const status = panel.querySelector('.xvm-grok-options-status');
-  if (status) {
-    status.textContent = opts.streaming
-      ? `生成中 ${comments.length}…`
-      : (comments.length ? `共 ${comments.length} 条` : '');
-  }
-  const list = panel.querySelector('.xvm-grok-options-list');
-  list.innerHTML = '';
-  comments.forEach((comment, idx) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'xvm-grok-choice';
-    btn.textContent = comment;
-    btn.title = '填充到回复框';
-    btn.addEventListener('click', () => {
-      insertTextIntoReply(editable, comment);
-      closeGrokOptions();
-      showToast('已填充评论');
-    });
-    btn.dataset.idx = String(idx + 1);
-    list.appendChild(btn);
-  });
-
-  // Smart placement.
-  //   - In a reply modal, the AI button sits inside the dialog and there is
-  //     usually empty viewport to either side of the dialog. Anchor the panel
-  //     to the dialog's right edge so it sits beside the modal as a sibling
-  //     surface (preferred) or to its left if the right is cramped.
-  //   - Outside a modal, prefer right-of-button (trends column is typically
-  //     empty), then above (composer is at viewport bottom on status pages),
-  //     then below.
-  const anchor = opts.anchor;
-  if (anchor) {
-    // X's modal scrim ([role="dialog"]) usually spans the full viewport;
-    // the visible modal is a constrained-width child somewhere up the tree.
-    // To anchor beside the *visible* modal we walk up from the button and
-    // take the outermost ancestor whose width fits within the viewport with
-    // breathing room on at least one side.
-    let dialog = null;
-    if (anchor.closest('[role="dialog"]')) {
-      const vw = window.innerWidth;
-      let node = anchor.parentElement;
-      while (node && node !== document.body) {
-        const r = node.getBoundingClientRect();
-        const sideRoom = vw - r.width;
-        if (r.width >= 400 && sideRoom >= 320) {
-          dialog = node; // keep updating; outermost-fitting wins
-        }
-        if (node.matches?.('[role="dialog"]')) break;
-        node = node.parentElement;
-      }
-    }
-    const refRect = (dialog || anchor).getBoundingClientRect();
-    const btnRect = anchor.getBoundingClientRect();
-    const margin = 8;
-    const minW = 320;
-    const maxW = 420;
-    const minH = 240;
-
-    const spaceRight = window.innerWidth - refRect.right - margin;
-    const spaceLeft = refRect.left - margin;
-    const spaceAbove = btnRect.top - margin;
-    const spaceBelow = window.innerHeight - btnRect.bottom - margin;
-    const panelHGuess = Math.max(panel.offsetHeight || 0, minH);
-
-    let placement;
-    if (dialog) {
-      // Modal: pick whichever side of the dialog has more room.
-      placement = spaceRight >= spaceLeft && spaceRight >= minW + 12
-        ? 'right'
-        : (spaceLeft >= minW + 12 ? 'left' : 'above');
-    } else if (spaceRight >= minW + 12) {
-      placement = 'right';
-    } else if (spaceAbove >= panelHGuess || spaceAbove >= spaceBelow) {
-      placement = 'above';
-    } else {
-      placement = 'below';
-    }
-
-    panel.classList.remove(
-      'xvm-grok-options--above',
-      'xvm-grok-options--below',
-      'xvm-grok-options--right',
-      'xvm-grok-options--left',
-    );
-    panel.classList.add(`xvm-grok-options--${placement}`);
-    panel.classList.toggle('xvm-grok-options--in-modal', !!dialog);
-
-    if (placement === 'right' || placement === 'left') {
-      const space = placement === 'right' ? spaceRight : spaceLeft;
-      const width = Math.min(maxW, Math.max(minW, space - 4));
-      panel.style.width = `${width}px`;
-      panel.style.left = placement === 'right'
-        ? `${refRect.right + margin}px`
-        : `${Math.max(12, refRect.left - margin - width)}px`;
-      const panelH = panel.offsetHeight || panelHGuess;
-      const idealTop = dialog
-        ? refRect.top
-        : btnRect.top + btnRect.height / 2 - panelH / 2;
-      const top = Math.max(12, Math.min(window.innerHeight - panelH - 12, idealTop));
-      panel.style.top = `${top}px`;
-    } else {
-      const width = Math.min(maxW, window.innerWidth - 24);
-      panel.style.width = `${width}px`;
-      const left = Math.max(12, Math.min(window.innerWidth - width - 12, btnRect.right - width));
-      panel.style.left = `${left}px`;
-      const panelH = panel.offsetHeight || panelHGuess;
-      if (placement === 'above') {
-        panel.style.top = `${Math.max(12, btnRect.top - panelH - margin)}px`;
-      } else {
-        panel.style.top = `${btnRect.bottom + margin}px`;
-      }
-    }
-    panel.dataset.anchorX = String(btnRect.left + btnRect.width / 2);
-  }
-
-  if (isNew) {
-    // Don't bubble panel clicks/mousedowns to the page or X's modal backdrop —
-    // some X dialog overlays close themselves on backdrop click and would
-    // dismiss our panel as collateral.
-    //
-    // IMPORTANT: stop in the BUBBLE phase, not capture. A capture-phase
-    // stopPropagation here would prevent the event from ever reaching the
-    // inner candidate buttons, breaking their click handlers.
-    panel.addEventListener('mousedown', (e) => e.stopPropagation());
-    panel.addEventListener('click', (e) => e.stopPropagation());
-
-    // Explicit dismissal: Escape key. (Plus the ✕ button, plus picking a
-    // candidate auto-closes via showToast.) Outside-click intentionally does
-    // not dismiss — too easy to lose work-in-progress, especially in modals.
-    const onKey = (e) => {
-      if (e.key !== 'Escape') return;
-      if (!panel.isConnected) { document.removeEventListener('keydown', onKey, true); return; }
-      e.stopPropagation();
-      closeGrokOptions();
-      document.removeEventListener('keydown', onKey, true);
-    };
-    document.addEventListener('keydown', onKey, true);
-
-    // If the panel was anchored beside a reply modal, close the panel when the
-    // modal goes away (X-click, ESC on modal, navigation, …). Otherwise the
-    // candidates orphan-float on top of the next page, looking broken.
-    const anchorEl = anchor;
-    if (anchorEl && anchorEl.closest('[role="dialog"]')) {
-      const checkModalAlive = () => {
-        if (!panel.isConnected) {
-          modalWatch.disconnect();
-          return;
-        }
-        if (!anchorEl.isConnected) {
-          modalWatch.disconnect();
-          closeGrokOptions();
-        }
-      };
-      const modalWatch = new MutationObserver(checkModalAlive);
-      modalWatch.observe(document.body, { childList: true, subtree: true });
-    }
-  }
-}
-
-function setGrokButtonLabel(btn, label = 'AI 生成', loading = false) {
-  btn.classList.toggle('xvm-grok-generate-btn--loading', loading);
-  btn.innerHTML = `<span class="xvm-grok-spark" aria-hidden="true">✦</span><span>${label}</span>`;
-}
-
-function requestExternalAiGeneration(payload, onProgress = null) {
-  return new Promise((resolve, reject) => {
-    const requestId = `ai-${Date.now()}-${++aiRequestSeq}`;
-    const timer = setTimeout(() => {
-      aiPendingRequests.delete(requestId);
-      reject(new Error('AI 生成超时，请检查服务连接'));
-    }, 65000);
-    aiPendingRequests.set(requestId, { resolve, reject, timer, onProgress });
-    window.postMessage({
-      type: 'XVM_AI_GENERATE',
-      requestId,
-      payload: {
-        ...payload,
-        provider: aiProvider,
-        platform: aiOpenAIPlatform,
-        baseUrl: aiBaseUrl,
-        model: aiModel,
-        replyCount: aiReplyCount,
-        language: aiLanguage,
-      },
-    }, '*');
-  });
-}
-
-async function handleGrokGenerate(btn, editable, promptTemplate = null) {
-  // Synchronous re-entry guard. `btn.disabled = true` later races with rapid
-  // double-clicks; the dataset flag is set before any await so the second
-  // click sees it immediately.
-  if (btn.dataset.xvmBusy === '1') return;
-  btn.dataset.xvmBusy = '1';
-
-  const root = findReplyComposerRoot(editable);
-  const article = findReplyArticleForAiComposer(root);
-  const replyText = getTweetTextFromArticle(article);
-  if (!replyText) {
-    showGrokErrorToast('未找到推文内容');
-    delete btn.dataset.xvmBusy;
-    return;
-  }
-  // If the user clicked reply on a nested reply (article ≠ thread OG),
-  // compose the prompt context as 「原推文 + 回复」 so Grok sees the full
-  // conversation rather than just the tweet being immediately responded to.
-  const ogArticle = grokLastReplyThreadOg && grokLastReplyThreadOg !== article && grokLastReplyThreadOg.isConnected
-    ? grokLastReplyThreadOg
-    : null;
-  const ogText = ogArticle ? getTweetTextFromArticle(ogArticle) : '';
-  const tweetText = (ogText && ogText !== replyText)
-    ? `【原推文】\n${ogText}\n\n【对该推文的回复】\n${replyText}`
-    : replyText;
-  btn.disabled = true;
-  setGrokButtonLabel(btn, '生成中', true);
-  const epoch = ++grokGenEpoch;
-  try {
-    const tpl = promptTemplate || getSelectedGrokPromptTemplate();
-    // Returning false from onProgress tells the reader to abort the stream.
-    const onProgress = (running) => {
-      if (epoch !== grokGenEpoch) return false;
-      showGrokOptions(running, editable, { streaming: true, anchor: btn });
-      return true;
-    };
-    showGrokOptions([], editable, { streaming: true, anchor: btn });
-    const comments = aiProvider === 'x-grok'
-      ? await (async () => {
-        if (!window.__xvmGrok) {
-          throw new Error('插件未正确加载（lib/grok-reply.js 缺失），请重载扩展');
-        }
-        return window.__xvmGrok.generate({
-          tweetText,
-          promptTemplate: normalizeGrokPromptText(tpl?.prompt || tpl),
-          temporaryChat: grokTemporaryChat,
-          onProgress,
-        });
-      })()
-      : await requestExternalAiGeneration({
-        tweetText,
-        promptTemplate: normalizeGrokPromptText(tpl?.prompt || tpl),
-      }, onProgress);
-    if (epoch !== grokGenEpoch) return;
-    showGrokOptions(comments, editable, { streaming: false, anchor: btn });
-  } catch (err) {
-    console.debug('[XVM-AI] generation failed', err);
-    if (epoch !== grokGenEpoch) return;
-    closeGrokOptions();
-    showGrokErrorToast(err?.message || 'AI 生成失败');
-  } finally {
-    btn.disabled = false;
-    setGrokButtonLabel(btn);
-    delete btn.dataset.xvmBusy;
-  }
-}
-
-function injectGrokReplyButtons(root = document) {
-  // X's reply textarea: the [data-testid="tweetTextarea_0"] element IS the
-  // contenteditable directly (not a parent of it). Plain `textarea[…]`
-  // matchers cover the rare non-Draft fallback inputs (e.g. settings forms
-  // that share our injection path).
-  const editors = root.querySelectorAll?.('[data-testid="tweetTextarea_0"][contenteditable="true"], div[role="textbox"][contenteditable="true"], textarea[placeholder], textarea[aria-label]') || [];
-  for (const editable of editors) {
-    const composerRoot = findReplyComposerRoot(editable);
-    cleanupMisplacedGrokButtons(editable, composerRoot);
-    if (!composerRoot) continue;
-    // Single gate: there must be a source tweet tied to this composer. Do not
-    // fall back to the page's current/first tweet here, otherwise the normal
-    // "new post" composer gets a reply-only AI button.
-    if (!findReplyArticleForAiComposer(composerRoot)) {
-      composerRoot.querySelectorAll?.('.xvm-grok-generate-btn').forEach((btn) => btn.remove());
-      continue;
-    }
-    if (composerRoot.querySelector('.xvm-grok-generate-btn')) continue;
-
-    const target = findGrokButtonHost(editable, composerRoot);
-    if (!target) continue;
-    const { host, submitBtn } = target;
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'xvm-grok-generate-btn';
-    if (target.placement === 'mobile-top') {
-      btn.classList.add('xvm-grok-generate-btn--mobile-top');
-    }
-    setGrokButtonLabel(btn);
-    btn.title = '使用提示词模板生成评论';
-    btn.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      if (grokPromptTemplates.length > 1) {
-        showGrokTemplateMenu(btn, editable);
-      } else {
-        handleGrokGenerate(btn, editable);
-      }
-    });
-    if (target.insertBefore?.parentElement === host) {
-      prepareGrokActionsHost(host);
-      host.insertBefore(btn, target.insertBefore);
-    } else if (submitBtn?.parentElement === host) {
-      prepareGrokActionsHost(host);
-      host.insertBefore(btn, submitBtn);
-    } else {
-      prepareGrokActionsHost(host);
-      host.appendChild(btn);
-    }
-  }
-}
-
-// Tracks the conversation the user is replying into. Two pieces:
-//   - grokLastReplyArticle    → the specific tweet the user clicked reply on
-//   - grokLastReplyThreadOg   → the conversation root (OG tweet) at click time
-//                                — captured BEFORE navigation, while the
-//                                  status URL still tells us which article
-//                                  is the conversation root. Lets us include
-//                                  OG context in the prompt when commenting
-//                                  on a nested reply.
-let grokLastReplyThreadOg = null;
+// Remember which tweet the user clicked reply on, so Enter-to-reply still
+// knows the target on /compose/post.
 document.addEventListener('click', (e) => {
-  // Sending the reply ends the job for that tweet: drop the panel and stop
-  // any still-streaming generation instead of letting it repopulate.
-  if (e.target.closest?.(GROK_SUBMIT_SELECTOR)) closeGrokOptions();
   const replyBtn = e.target.closest?.('[data-testid="reply"]');
   if (!replyBtn) return;
   const article = replyBtn.closest('article[data-testid="tweet"]');
   if (article) grokLastReplyArticle = article;
   grokLastReplyClickAt = Date.now();
-  // Find the conversation root at click-time. On a status page X renders the
-  // OG tweet as the article matching the URL's status id; on the timeline
-  // there is no page-wide root so OG defaults to the same article.
-  const statusId = getStatusIdFromLocation();
-  if (statusId) {
-    const all = document.querySelectorAll('article[data-testid="tweet"]');
-    let og = null;
-    for (const a of all) {
-      const id = getTweetIdFromArticle(a);
-      if (id === statusId || a.querySelector(`a[href*="/status/${statusId}"]`)) { og = a; break; }
-    }
-    grokLastReplyThreadOg = og || article || null;
-  } else {
-    grokLastReplyThreadOg = article || null;
-  }
 }, true);
 
 function closeOpenMenus() {
@@ -4782,93 +4159,6 @@ function injectCopyTweetCommentsItem(menuEl) {
   copyItem.parentNode.insertBefore(clone, copyItem.nextSibling);
 }
 
-function injectStarChartItem(menuEl) {
-  if (!starChartEnabled) return;
-  if (menuEl.querySelector('.xvm-starchart-item')) return;
-  const allItems = menuEl.querySelectorAll('[role="menuitem"]');
-  if (!allItems.length) return;
-  // Only clone a pristine X-native menuitem — never one we previously injected,
-  // otherwise we inherit its title+br+attribution children and end up with
-  // duplicate text rows.
-  const nativeItems = Array.from(allItems).filter(
-    (el) => !el.classList.contains('xvm-copy-md-item')
-      && !el.classList.contains('xvm-copy-comments-item')
-      && !el.classList.contains('xvm-starchart-item'),
-  );
-  if (!nativeItems.length) return;
-  const items = allItems;
-
-  const template = nativeItems[nativeItems.length - 1];
-  const clone = template.cloneNode(true);
-  clone.classList.add('xvm-starchart-item');
-  clone.removeAttribute('data-testid');
-  clone.querySelectorAll('[data-testid]').forEach((el) => el.removeAttribute('data-testid'));
-
-  const textSpans = clone.querySelectorAll('span');
-  let labelSpan = null;
-  for (const s of textSpans) {
-    if (s.children.length === 0 && (s.textContent || '').trim()) {
-      labelSpan = s; break;
-    }
-  }
-  if (labelSpan) {
-    labelSpan.textContent = '';
-    const title = document.createElement('span');
-    title.textContent = i18n('contentStarChartMenuLabel');
-    const attribution = document.createElement('span');
-    attribution.className = 'xvm-copy-md-source';
-    attribution.textContent = i18n('contentStarChartAttribution');
-    labelSpan.appendChild(title);
-    labelSpan.appendChild(document.createElement('br'));
-    labelSpan.appendChild(attribution);
-  } else {
-    clone.textContent = i18n('contentStarChartMenuLabel');
-  }
-
-  const svg = clone.querySelector('svg');
-  if (svg) {
-    const starIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    starIcon.setAttribute('viewBox', '0 0 24 24');
-    starIcon.setAttribute('width', svg.getAttribute('width') || '18');
-    starIcon.setAttribute('height', svg.getAttribute('height') || '18');
-    starIcon.setAttribute('aria-hidden', 'true');
-    starIcon.style.fill = 'currentColor';
-    starIcon.innerHTML = '<path d="M12 2l2.39 6.36L21 9l-5 4.74L17.18 21 12 17.27 6.82 21 8 13.74 3 9l6.61-.64L12 2z"/>';
-    svg.replaceWith(starIcon);
-  }
-
-  clone.addEventListener('click', (ev) => {
-    ev.preventDefault();
-    const ctx = lastShareContext;
-    if (!ctx || !ctx.article || !ctx.article.isConnected) {
-      showToast(i18n('contentStarChartNoTweetFound'));
-      closeOpenMenus();
-      return;
-    }
-    const tweetId = getTweetIdFromArticle(ctx.article);
-    if (!tweetId) {
-      showToast(i18n('contentStarChartNoTweetFound'));
-      closeOpenMenus();
-      return;
-    }
-    const data = tweetDataStore.get(tweetId) || {};
-    closeOpenMenus();
-    if (!window.__XVMStarChart?.open) {
-      showToast(i18n('contentStarChartModuleNotLoaded'));
-      return;
-    }
-    window.__XVMStarChart.open({
-      tweetId,
-      authorScreenName: data.authorScreenName || data.screenName || '',
-      text: data.text || '',
-      articleTitle: data.articleTitle || '',
-    });
-  });
-
-  const lastItem = items[items.length - 1];
-  lastItem.parentNode.appendChild(clone);
-}
-
 const menuObserver = new MutationObserver((mutations) => {
   for (const m of mutations) {
     for (const node of m.addedNodes) {
@@ -4880,7 +4170,6 @@ const menuObserver = new MutationObserver((mutations) => {
         if (!isShareMenu(menu)) continue;
         injectCopyMarkdownItem(menu);
         injectCopyTweetCommentsItem(menu);
-        injectStarChartItem(menu);
       }
     }
   }

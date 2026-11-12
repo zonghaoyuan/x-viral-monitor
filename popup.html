@@ -718,7 +718,7 @@
     #xvm-toast.show { opacity: 1; }
   </style>
 </head>
-<body data-tab="filter" data-tier="free" data-theme="light">
+<body data-tab="filter" data-tier="pro" data-theme="light">
 
   <!-- ============ Lucide SVG icon sprite ============ -->
   <svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden" focusable="false">
@@ -741,7 +741,6 @@
         <span class="name">X-Viral-Monitor</span>
         <span class="sub" data-i18n="popupSubtitle">Real-time impression velocity on X tweets</span>
       </div>
-      <span id="tier-chip">FREE</span>
       <button type="button" id="language-toggle" class="language-toggle" aria-label="Language" title="Language">
         <svg class="ico-globe"><use href="#icon-globe"/></svg>
         <span class="language-toggle-text">EN</span>
@@ -755,38 +754,10 @@
 
     <!-- ============ Tab bar ============ -->
     <div class="tabbar" role="tablist">
-      <button type="button" class="tab-btn" role="tab" data-tab="pro"         aria-selected="false"><span data-i18n="tabPro">Pro</span></button>
       <button type="button" class="tab-btn" role="tab" data-tab="filter"      aria-selected="true"><span data-i18n="tabFilter">Filter</span></button>
       <button type="button" class="tab-btn" role="tab" data-tab="leaderboard" aria-selected="false"><span data-i18n="tabLeaderboard">Leaderboard</span></button>
-      <button type="button" class="tab-btn" role="tab" data-tab="ai"          aria-selected="false"><span data-i18n="tabAi">AI 评论</span></button>
       <button type="button" class="tab-btn" role="tab" data-tab="about"       aria-selected="false"><span data-i18n="tabAbout">About</span></button>
     </div>
-
-    <!-- ============ Tab: Pro ============ -->
-    <section role="tabpanel" id="tabpanel-pro" data-tab-panel="pro">
-      <!-- popup-pro.js renders banner + CTAs + meta into #xvm-pro-section,
-           and inline activate form into #activate-inline below it. -->
-      <div id="xvm-pro-section" class="pro-banner" data-tier="free"></div>
-
-      <div class="pro-activate" id="activate-inline" hidden>
-        <label for="activate-key" data-i18n="proActivateLabel">Already bought? Enter your license key:</label>
-        <input id="activate-key" type="text" autocomplete="off" placeholder="creem-XXXXX...">
-        <div class="actions">
-          <button type="button" id="activate-cancel" class="adv-btn" data-i18n="btnCancel">Cancel</button>
-          <button type="button" id="activate-submit" class="adv-btn primary" data-i18n="proActivateBtn">Activate</button>
-        </div>
-        <div class="pro-msg" id="activate-msg"></div>
-      </div>
-
-      <div class="coming-list">
-        <div class="coming-list-title" data-i18n="comingListTitle">Coming in v1.8.0</div>
-        <ul>
-          <li><svg><use href="#icon-palette"/></svg><span class="label" data-i18n="featureColorCardLabel">Custom color palette</span><span class="chip-soon" data-i18n="chipComingSoon">Coming soon</span></li>
-          <li><svg><use href="#icon-webhook"/></svg><span class="label" data-i18n="featureWebhookLabel">Private hot-tweet webhook</span><span class="chip-soon" data-i18n="chipComingSoon">Coming soon</span></li>
-          <li><svg><use href="#icon-bell"/></svg><span class="label" data-i18n="featureBarkLabel">Bark notifications</span><span class="chip-soon" data-i18n="chipComingSoon">Coming soon</span></li>
-        </ul>
-      </div>
-    </section>
 
     <!-- ============ Tab: Filter ============ -->
     <section role="tabpanel" id="tabpanel-filter" data-tab-panel="filter" data-active="1">
@@ -859,7 +830,7 @@
     </section>
 
     <!-- ============ Tab: AI ============ -->
-    <section role="tabpanel" id="tabpanel-ai" data-tab-panel="ai">
+    <section role="tabpanel" id="tabpanel-ai" data-tab-panel="ai" hidden style="display:none">
 
       <div class="panel-card ai-provider-card">
         <h3 data-i18n="aiProviderTitle">AI comment provider</h3>
@@ -956,7 +927,6 @@
       <div class="panel-card">
         <h3 data-i18n="advOtherFeaturesTitle">Other features</h3>
         <div class="feature-row"><div class="ft-body"><label for="feat-copy-md"><div class="ft-title" data-i18n="featureCopyMdTitle">📋 Copy tweet as Markdown</div><div class="ft-desc" data-i18n="featureCopyMdDesc">Adds a "Copy as Markdown" entry at the bottom of X's native share menu.</div></label></div><label class="switch" for="feat-copy-md" aria-label="Copy tweet as Markdown"><input id="feat-copy-md" type="checkbox"><span class="slider"></span></label></div>
-        <div class="feature-row"><div class="ft-body"><label for="feat-starchart"><div class="ft-title" data-i18n="popupStarChartLabel">⭐ Thank-You Star Chart</div><div class="ft-desc" data-i18n="popupStarChartHint">Adds a star-chart option to the share menu of any tweet.</div></label></div><label class="switch" for="feat-starchart" aria-label="Thank-You Star Chart"><input id="feat-starchart" type="checkbox"><span class="slider"></span></label></div>
         <div class="feature-row"><div class="ft-body"><label for="feat-bookmark-folders"><div class="ft-title" data-i18n="featureBookmarkFoldersTitle">🔖 Bookmark folder menu</div><div class="ft-desc" data-i18n="featureBookmarkFoldersDesc">Hover over a tweet bookmark button to pick a folder, see where it is saved, or create a folder. Requires X Premium.</div></label></div><label class="switch" for="feat-bookmark-folders" aria-label="Bookmark folder menu"><input id="feat-bookmark-folders" type="checkbox"><span class="slider"></span></label></div>
         <div class="feature-row"><div class="ft-body"><label for="feat-bookmark-count"><div class="ft-title" data-i18n="featureBookmarkCountTitle">🔖 Show bookmark count</div><div class="ft-desc" data-i18n="featureBookmarkCountDesc">Display the bookmark count next to each tweet's bookmark button on the timeline.</div></label></div><label class="switch" for="feat-bookmark-count" aria-label="Show bookmark count"><input id="feat-bookmark-count" type="checkbox"><span class="slider"></span></label></div>
         <div class="feature-row"><div class="ft-body"><label for="grok-enter-reply"><div class="ft-title" data-i18n="popupGrokEnterReplyLabel">Press Enter to reply</div><div class="ft-desc" data-i18n="popupGrokEnterReplyHint">When enabled, plain Enter sends the reply. Shift/Command/Ctrl/Alt+Enter keep their original behavior.</div></label></div><label class="switch" for="grok-enter-reply" aria-label="Press Enter to reply"><input id="grok-enter-reply" type="checkbox"><span class="slider"></span></label></div>
@@ -982,9 +952,6 @@
   <div id="xvm-toast" role="status" aria-live="polite"></div>
 
   <script src="src/build-channel.js"></script>
-  <script src="src/premium/license/tier-logic.js"></script>
-  <script src="src/premium/license/entitlement.js"></script>
-  <script src="src/premium/license/popup-pro.js"></script>
   <script src="src/premium/rate-filter/popup-rate-filter.js"></script>
   <script src="src/premium/content-filter/rules.js"></script>
   <script src="src/premium/content-filter/popup-content-filter.js"></script>

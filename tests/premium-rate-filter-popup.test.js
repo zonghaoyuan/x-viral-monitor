@@ -13,7 +13,7 @@ const repo = resolve(here, '..');
 const html      = readFileSync(resolve(repo, 'popup.html'), 'utf8');
 const popupRf   = readFileSync(resolve(repo, 'src/premium/rate-filter/popup-rate-filter.js'), 'utf8');
 const filter    = readFileSync(resolve(repo, 'src/premium/rate-filter/filter.js'), 'utf8');
-const isolated  = readFileSync(resolve(repo, 'src/premium/license/isolated.js'), 'utf8');
+const isolated  = readFileSync(resolve(repo, 'src/premium/filter-bridge.js'), 'utf8');
 const bridge    = readFileSync(resolve(repo, 'bridge.js'), 'utf8');
 const content   = readFileSync(resolve(repo, 'content.js'), 'utf8');
 const manifest  = JSON.parse(readFileSync(resolve(repo, 'manifest.json'), 'utf8'));
@@ -100,8 +100,8 @@ describe('#45 rate-filter popup settings (dev1 gap fix)', () => {
     expect(/tier\s*===\s*['"]free['"]/.test(popupRf),
       'must check tier === "free" to set locked'
     ).toBe(true);
-    expect(/__xvmTierLogic/.test(popupRf),
-      'must use tier-logic.js for tier resolution (not its own)'
+    expect(/local-unlocked/.test(popupRf),
+      'local build resolves every tier to pro'
     ).toBe(true);
   });
 

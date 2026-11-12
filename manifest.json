@@ -5,26 +5,7 @@
   "description": "__MSG_extDescription__",
   "default_locale": "en",
   "permissions": ["storage"],
-  "host_permissions": [
-    "https://raw.githubusercontent.com/*",
-    "http://localhost/*",
-    "http://127.0.0.1/*",
-    "https://api.openai.com/*",
-    "https://api.deepseek.com/*",
-    "https://openrouter.ai/*",
-    "https://api.moonshot.ai/*",
-    "https://api.moonshot.cn/*",
-    "https://dashscope.aliyuncs.com/*",
-    "https://dashscope-intl.aliyuncs.com/*",
-    "https://dashscope-us.aliyuncs.com/*",
-    "https://cn-hongkong.dashscope.aliyuncs.com/*",
-    "https://api.siliconflow.cn/*",
-    "https://api.siliconflow.com/*",
-    "https://xvm-license.lengkuxiaomao.workers.dev/*"
-  ],
-  "background": {
-    "service_worker": "background.js"
-  },
+  "host_permissions": ["https://raw.githubusercontent.com/*"],
   "action": {
     "default_popup": "popup.html",
     "default_title": "__MSG_extName__",
@@ -42,12 +23,12 @@
   "content_scripts": [
     {
       "matches": ["https://x.com/*", "https://pro.x.com/*"],
-      "js": ["src/build-channel.js", "lib/bookmark-timeline-storage.js", "bridge.js", "src/premium/license/tier-logic.js", "src/premium/license/entitlement.js", "src/premium/license/isolated.js"],
+      "js": ["src/build-channel.js", "lib/bookmark-timeline-storage.js", "bridge.js", "src/premium/filter-bridge.js"],
       "run_at": "document_start"
     },
     {
       "matches": ["https://x.com/*", "https://pro.x.com/*"],
-      "js": ["src/build-channel.js", "lib/x-net-hook.js", "lib/x-client-transaction.js", "lib/grok-reply.js", "lib/long-image-viewer.js", "lib/image-viewer.js", "lib/bookmark-timeline-inject.js", "lib/timeline-ad-prune.js", "src/premium/license/gate.js", "src/premium/content-filter/rules.js", "src/premium/content-filter/filter.js", "src/premium/rate-filter/filter.js", "content.js", "starchart.js", "bookmark-menu.js"],
+      "js": ["src/build-channel.js", "lib/x-net-hook.js", "lib/x-client-transaction.js", "lib/long-image-viewer.js", "lib/image-viewer.js", "lib/bookmark-timeline-inject.js", "lib/timeline-ad-prune.js", "src/premium/unlocked.js", "src/premium/content-filter/rules.js", "src/premium/content-filter/filter.js", "src/premium/rate-filter/filter.js", "content.js", "bookmark-menu.js", "src/following-filter.js"],
       "css": ["styles.css"],
       "run_at": "document_start",
       "world": "MAIN"

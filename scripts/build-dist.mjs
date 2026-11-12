@@ -23,7 +23,6 @@ const ITEMS = [
   'icons',
   'lib',
   'src',
-  'background.js',
   'bridge.js',
   'bookmark-menu.js',
   'content.js',
@@ -31,7 +30,6 @@ const ITEMS = [
   'popup.html',
   'popup.js',
   'popup-dashboard.js', // mock A tab router (also handles theme + nav events)
-  'starchart.js',
   'styles.css',
 ];
 
